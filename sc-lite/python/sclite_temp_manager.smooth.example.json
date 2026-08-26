@@ -7,7 +7,7 @@
     "mode": "smooth",
     "poll_s": 3.0,
     "board": "max",
-    "force_tempcontrol_on": true,
+    "force_tempcontrol_on": false,
     "smooth": {
       "min_temp": 60,
       "max_temp": 85,
@@ -20,8 +20,8 @@
     }
   },
   "safety": {
-    "abort_c": 90.0,
-    "restore_auto_on_exit": false
+    "abort_c": 88.0,
+    "restore_auto_on_exit": true
   },
   "ui": {
     "interactive": true
