@@ -3,10 +3,12 @@
 SC Lite temperature manager — kick / ramp fans when boards are hot.
 
 Modes (config control.mode):
-  single  — if temp >= on_temp → kick_fan (original behavior)
-  steps   — stepped thresholds, e.g. >=60→55, >=65→60, >=70→65
-  smooth  — linear temp→fan map + weighted-average history blend
-            (inspired by community IPMI ramp code; fiddle smooth.* ranges)
+  single  — BASIC: if temp >= on_temp → kick_fan (tempcontrol ON is fine)
+  steps   — ADVANCED but safer: stepped thresholds with tempcontrol ON
+            e.g. >=60→55, >=65→60, >=70→65 (highest match wins)
+  smooth  — continuous ramp; intended for tempcontrol OFF so stock fanctrl
+            does not fight you. Linear temp→fan map + weighted history blend.
+            Fiddle smooth.* ranges to taste. Riskier — keep abort_c set.
 
 Example:
   set SCLITE_IP=192.168.0.202
@@ -234,8 +236,8 @@ def apply_fan(st: Settings, fan: int, why: str) -> None:
     payload["manual"] = True
     payload["manualPowerplan"] = new_plan
     payload["select"] = 0
-    if st.force_tempcontrol_on:
-        payload["tempcontrol"] = True
+    # Explicit: smooth usually wants tc OFF; single/steps usually ON.
+    payload["tempcontrol"] = bool(st.force_tempcontrol_on)
     sc.put_setting(payload)
     st.last_kick_ts = time.time()
     st.last_applied_fan = fan
@@ -290,8 +292,14 @@ def render(
         cd_left = max(0.0, interval - (time.time() - st.last_kick_ts))
     pause = "PAUSED" if st.paused else "RUN"
     print("SC Lite temp manager")
+    tc_hint = {
+        "single": "basic (tc ON ok)",
+        "steps": "advanced/safer (tc ON ok)",
+        "smooth": "ramp — prefer tc OFF",
+    }.get(st.mode, "")
     print(
-        f"host={sc.host()}  ctrl={st.mode}  {pause}  status={st.last_status}"
+        f"host={sc.host()}  ctrl={st.mode} [{tc_hint}]  {pause}  "
+        f"status={st.last_status}"
     )
     print(
         f"plan={setting.get('manualPowerplan')}  "
@@ -545,6 +553,18 @@ def main() -> None:
         f"connecting {sc.host()} mode={st.mode} abort={st.abort_c} "
         f"poll={st.poll_s}s"
     )
+    if st.mode == "smooth" and st.force_tempcontrol_on:
+        print(
+            "NOTE: smooth mode works best with tempcontrol OFF "
+            "(set force_tempcontrol_on=false). Stock fanctrl fights continuous ramps.",
+            file=sys.stderr,
+        )
+    if st.mode in ("single", "steps") and not st.force_tempcontrol_on:
+        print(
+            "NOTE: single/steps are safer with tempcontrol ON "
+            "(force_tempcontrol_on=true).",
+            file=sys.stderr,
+        )
     sc.login()
     st.note("logged in")
 

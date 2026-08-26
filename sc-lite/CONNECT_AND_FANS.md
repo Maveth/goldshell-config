@@ -106,17 +106,22 @@ Or bash: copy JWT, then use / adapt `miner-profile` (clock-oriented).
 
 ## 5. Temp manager (auto re-kick)
 
-Because auto mode eases fans down, a small watchdog can re-kick when hot:
+Because auto mode eases fans down, a watchdog can re-apply fan fields when hot.
+
+| Mode | Role | `tempcontrol` |
+|------|------|----------------|
+| `single` | **Basic** — one threshold → one kick | Keep **ON** |
+| `steps` | **Advanced but safer** — temp ladder (highest match) | Keep **ON** |
+| `smooth` | Continuous weighted ramp | Prefer **OFF** (stock fanctrl fights ramps). Fiddle `smooth.min_temp/max_temp/min_fan/max_fan`. Use abort + restore-on-exit. |
 
 ```bash
 cp sclite_temp_manager.example.json sclite_temp_manager.json
-# edit on_temp / kick_fan / cooldown_s
 python sclite_temp_manager.py --config sclite_temp_manager.json
+python sclite_temp_manager.py --config sclite_temp_manager.steps.example.json
+python sclite_temp_manager.py --config sclite_temp_manager.smooth.example.json
 ```
 
-Defaults in the example: kick to **70** when watched temp ≥ **80.5 °C**, cooldown **45s**, abort ≥ **90 °C**.
-
-Keys: `[` `]` on_temp · `{` `}` kick_fan · `p` pause · `k` force kick · `r` restore · `s` save · `q` quit
+Keys: `m` cycle mode · `[` `]` on_temp · `{` `}` kick_fan · `p` pause · `k` force · `r` restore · `s` save · `q` quit
 
 See [`python/README.md`](python/README.md).
 

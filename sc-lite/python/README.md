@@ -63,12 +63,11 @@ python sclite_temp_manager.py --config sclite_temp_manager.json
 
 #### Modes (`control.mode`) — pick one
 
-| Mode | What it does |
-|------|----------------|
-| **`single`** | temp ≥ `on_temp` → kick to `kick_fan` |
-| **`steps`** | stepped: e.g. ≥60→55, ≥65→60, ≥70→65 (highest match wins) |
-| **`smooth`** | linear map `min_temp..max_temp` → `min_fan..max_fan`, then weighted history blend. **Fiddle those ranges** for your box. |
-
+| Mode | Role | tempcontrol |
+|------|------|-------------|
+| **`single`** | **Basic** — temp ≥ `on_temp` → kick to `kick_fan` | Keep **ON** (safer) |
+| **`steps`** | **Advanced but safer** — ladder e.g. ≥60→55, ≥65→60, ≥70→65 | Keep **ON** |
+| **`smooth`** | Continuous ramp (weighted history). **Fiddle** `min_temp/max_temp/min_fan/max_fan` | Prefer **OFF** so stock `fanctrl` doesn’t fight you; use abort + `restore_auto_on_exit` |
 ```powershell
 python sclite_temp_manager.py --config sclite_temp_manager.steps.example.json
 python sclite_temp_manager.py --config sclite_temp_manager.smooth.example.json
