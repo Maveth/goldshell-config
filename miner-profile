@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+MINER_IP="${MINER_IP:-192.168.x.y}"
+MINER="http://$MINER_IP"
+
+if [ -z "${TOKEN:-}" ]; then
+    echo "ERROR: TOKEN is not set."
+    echo
+    echo "Run:"
+    echo "  export TOKEN='your-current-token'"
+    exit 1
+fi
+
+case "${1:-}" in
+    stock)
+        PLAN="615 MHz 9100 V 40 RPM 40 RPM PV 9400"
+        MANUAL=true
+        ;;
+    quiet)
+        PLAN="550 MHz 9100 V 40 RPM 40 RPM PV 9350"
+        MANUAL=true
+        ;;
+    ultraquiet)
+        PLAN="500 MHz 9100 V 40 RPM 40 RPM PV 9400"
+        MANUAL=true
+        ;;
+    status)
+        echo "Configured profile:"
+        curl -fsS \
+          -H "Authorization: Bearer $TOKEN" \
+          "$MINER/mcb/setting" \
+          | jq '{manualPowerplan,manual,select}'
+
+        echo
+        echo "Board status:"
+        curl -fsS \
+          -H "Authorization: Bearer $TOKEN" \
+          "$MINER/mcb/cgminer?cgminercmd=devs" \
+          | jq '.data[] | {
+              id,
+              hashrate,
+              av_hashrate,
+              hwerrors,
+              hwerr_ration,
+              temp
+            }'
+        exit 0
+        ;;
+    *)
+        echo "Usage:"
+        echo "  $0 stock"
+        echo "  $0 quiet"
+        echo "  $0 ultraquiet"
+        echo "  $0 status"
+        exit 1
+        ;;
+esac
+
+echo "Reading current miner configuration..."
+
+CURRENT="$(curl -fsS \
+  -H "Authorization: Bearer $TOKEN" \
+  "$MINER/mcb/setting")"
+
+echo "$CURRENT" | jq . >/dev/null
+
+PAYLOAD="$(echo "$CURRENT" | jq \
+  --arg plan "$PLAN" \
+  '.manual = true |
+   .manualPowerplan = $plan |
+   .select = 0')"
+
+echo
+echo "Applying profile:"
+echo "  $PLAN"
+echo
+
+curl -fsS -X PUT \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  --data-binary "$PAYLOAD" \
+  "$MINER/mcb/setting"
+
+echo
+echo "Waiting for miner to apply settings..."
+sleep 5
+
+echo
+echo "Configured setting now reported by miner:"
+
+RESULT="$(curl -fsS \
+  -H "Authorization: Bearer $TOKEN" \
+  "$MINER/mcb/setting")"
+
+echo "$RESULT" | jq '{manualPowerplan,manual,select}'
+
+ACTUAL_PLAN="$(echo "$RESULT" | jq -r '.manualPowerplan')"
+ACTUAL_MANUAL="$(echo "$RESULT" | jq -r '.manual')"
+
+if [ "$ACTUAL_PLAN" != "$PLAN" ]; then
+    echo
+    echo "ERROR: returned power plan does not match requested plan."
+    echo "Requested: $PLAN"
+    echo "Returned:  $ACTUAL_PLAN"
+    exit 2
+fi
+
+if [ "$ACTUAL_MANUAL" != "true" ]; then
+    echo
+    echo "ERROR: miner did not remain in manual mode."
+    exit 2
+fi
+
+echo
+echo "Configured profile applied successfully."
+
+echo
+echo "Checking actual runtime..."
+
+TMP="$(mktemp)"
+trap 'rm -f "$TMP"' EXIT
+
+HTTP_CODE="$(curl -sS \
+  -o "$TMP" \
+  -w '%{http_code}' \
+  -H "Authorization: Bearer $TOKEN" \
+  "$MINER/dbg/minerinfo")"
+
+if [ "$HTTP_CODE" = "200" ]; then
+    grep -E '\[voltage\]|\[clock\]' "$TMP" || true
+
+    echo
+    echo "Board hashrates:"
+    curl -fsS \
+      -H "Authorization: Bearer $TOKEN" \
+      "$MINER/mcb/cgminer?cgminercmd=devs" \
+      | jq '.data[] | {
+          id,
+          hashrate,
+          av_hashrate,
+          hwerr_ration,
+          temp
+        }'
+elif [ "$HTTP_CODE" = "401" ]; then
+    echo "Runtime verification skipped: Debug access is locked."
+    echo "Unlock the Debug page in the miner UI, then run:"
+    echo "  ./miner-runtime"
+else
+    echo "Runtime verification unavailable: HTTP $HTTP_CODE"
+fi

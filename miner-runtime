@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+MINER_IP="${MINER_IP:-192.168.x.y}"
+MINER="http://$MINER_IP"
+
+if [ -z "${TOKEN:-}" ]; then
+    echo "ERROR: TOKEN is not set."
+    echo "Run:"
+    echo "  export TOKEN='your-current-token'"
+    exit 1
+fi
+
+TMP="$(mktemp)"
+trap 'rm -f "$TMP"' EXIT
+
+HTTP_CODE="$(curl -sS \
+  -o "$TMP" \
+  -w '%{http_code}' \
+  -H "Authorization: Bearer $TOKEN" \
+  "$MINER/dbg/minerinfo")"
+
+if [ "$HTTP_CODE" = "401" ]; then
+    echo "ERROR: Debug access is locked."
+    echo "Unlock/refresh the Debug page in the miner web UI, then try again."
+    exit 1
+fi
+
+if [ "$HTTP_CODE" != "200" ]; then
+    echo "ERROR: miner returned HTTP $HTTP_CODE"
+    cat "$TMP"
+    exit 1
+fi
+
+grep -E '\[voltage\]|\[clock\]' "$TMP"

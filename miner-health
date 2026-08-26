@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+MINER_IP="${MINER_IP:-192.168.x.y}"
+MINER="http://$MINER_IP"
+
+if [ -z "${TOKEN:-}" ]; then
+    echo "ERROR: TOKEN is not set."
+    echo "Run:"
+    echo "  export TOKEN='your-current-token'"
+    exit 1
+fi
+
+echo "=== CONFIG ==="
+
+curl -fsS \
+  -H "Authorization: Bearer $TOKEN" \
+  "$MINER/mcb/setting" \
+  | jq -r '
+      "plan:   \(.manualPowerplan)",
+      "manual: \(.manual)"
+    '
+
+echo
+echo "=== RUNTIME ==="
+
+TMP="$(mktemp)"
+trap 'rm -f "$TMP"' EXIT
+
+HTTP_CODE="$(curl -sS \
+  -o "$TMP" \
+  -w '%{http_code}' \
+  -H "Authorization: Bearer $TOKEN" \
+  "$MINER/dbg/minerinfo")"
+
+if [ "$HTTP_CODE" = "200" ]; then
+    VOLTAGE="$(grep '\[voltage\]' "$TMP" | head -1 | sed -E 's/.*=>[[:space:]]*([0-9.]+).*/\1/')"
+    CLOCKS="$(grep '\[clock\]' "$TMP" | sed -E 's/.*=>[[:space:]]*([0-9.]+).*/\1/' | sort -nu | paste -sd, -)"
+
+    echo "voltage: ${VOLTAGE:-unknown}"
+    echo "clocks:  ${CLOCKS:-unknown} MHz"
+else
+    echo "debug: unavailable (HTTP $HTTP_CODE)"
+    echo "       unlock Debug page for voltage/chip details"
+fi
+
+echo
+echo "=== BOARDS ==="
+
+DEVS="$(curl -fsS \
+  -H "Authorization: Bearer $TOKEN" \
+  "$MINER/mcb/cgminer?cgminercmd=devs")"
+
+echo "$DEVS" | jq -r '
+  .data[]
+  | [
+      (.id|tostring),
+      ((.hashrate / 1000000) | tostring),
+      ((.av_hashrate / 1000000) | tostring),
+      .temp,
+      ((.hwerr_ration * 100) | tostring)
+    ]
+  | @tsv
+' | awk '
+BEGIN {
+    printf "%-6s %-11s %-11s %-10s %-10s\n", "BOARD", "NOW TH/s", "AVG TH/s", "TEMP", "HWERR %"
+}
+{
+    printf "%-6s %-11.3f %-11.3f %-10s %-10.3f\n", $1, $2, $3, $4, $5
+}'
+
+TOTAL_NOW="$(echo "$DEVS" | jq '[.data[].hashrate] | add / 1000000')"
+TOTAL_AVG="$(echo "$DEVS" | jq '[.data[].av_hashrate] | add / 1000000')"
+
+echo
+printf "total now: %.3f TH/s\n" "$TOTAL_NOW"
+printf "total avg: %.3f TH/s\n" "$TOTAL_AVG"
+
+if [ "$HTTP_CODE" = "200" ]; then
+    echo
+    echo "=== ASIC HEALTH ==="
+
+    ICFILE="$(mktemp)"
+
+    IC_CODE="$(curl -sS \
+      -o "$ICFILE" \
+      -w '%{http_code}' \
+      -H "Authorization: Bearer $TOKEN" \
+      "$MINER/dbg/icinfo")"
+
+    if [ "$IC_CODE" = "200" ]; then
+        jq -r '
+          .body | fromjson | .drawdata
+          | to_entries[]
+          | [
+              .key,
+              (.value|length),
+              ([.value[].perf]|add)/(.value|length),
+              ([.value[] | select(.perf == 0)] | length),
+              ([.value[].bist]|add)
+            ]
+          | @tsv
+        ' "$ICFILE" | awk '
+        BEGIN {
+            printf "%-6s %-7s %-10s %-10s %-10s\n", "BOARD", "CHIPS", "AVG PERF", "ZERO PERF", "GOOD CORES"
+        }
+        {
+            printf "%-6s %-7d %-10.2f %-10d %-10d\n", $1, $2, $3, $4, $5
+        }'
+
+        ZERO_TOTAL="$(jq -r '
+          .body | fromjson | .drawdata
+          | [[][] | select(.perf == 0)]
+          | length
+        ' "$ICFILE")"
+
+        echo
+        if [ "$ZERO_TOTAL" -eq 0 ]; then
+            echo "ASIC status: GOOD - zero chips at perf=0"
+        else
+            echo "ASIC status: WARNING - $ZERO_TOTAL chips at perf=0"
+        fi
+    else
+        echo "icinfo unavailable (HTTP $IC_CODE)"
+    fi
+
+    rm -f "$ICFILE"
+fi
