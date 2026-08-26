@@ -5,15 +5,14 @@
   },
   "control": {
     "mode": "steps",
-    "cooldown_s": 45,
-    "poll_s": 3.0,
+    "cooldown_s": 52,
+    "poll_s": 4.0,
     "board": "max",
     "force_tempcontrol_on": true,
     "steps": [
-      { "temp": 60, "fan": 55 },
-      { "temp": 65, "fan": 60 },
-      { "temp": 70, "fan": 65 },
-      { "temp": 80, "fan": 75 }
+      { "temp": 70, "fan": 70 },
+      { "temp": 80, "fan": 80 },
+      { "temp": 85, "fan": 90 }
     ]
   },
   "safety": {
