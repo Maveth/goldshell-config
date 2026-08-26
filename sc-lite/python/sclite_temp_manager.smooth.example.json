@@ -4,18 +4,10 @@
     "password": ""
   },
   "control": {
-    "mode": "single",
-    "on_temp": 80.5,
-    "kick_fan": 70,
-    "cooldown_s": 45,
+    "mode": "smooth",
     "poll_s": 3.0,
     "board": "max",
     "force_tempcontrol_on": true,
-    "steps": [
-      { "temp": 60, "fan": 55 },
-      { "temp": 65, "fan": 60 },
-      { "temp": 70, "fan": 65 }
-    ],
     "smooth": {
       "min_temp": 60,
       "max_temp": 85,

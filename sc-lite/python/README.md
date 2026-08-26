@@ -1,60 +1,103 @@
-# SC Lite Python helpers
+# MaVeTh SC Lite Python helpers
 
-Auto-login JWT tools for firmware **2.2.0**.
+Auto-login JWT tools for firmware 2.2.0.
 
-Full walkthrough: [`../CONNECT_AND_FANS.md`](../CONNECT_AND_FANS.md)
+Full walkthrough (ports, auth, fan kicks, safety):  
+[`../CONNECT_AND_FANS.md`](../CONNECT_AND_FANS.md)
 
-## Setup
+These scripts are **not** BIP-110-specific — they only talk to the miner over LAN HTTP.  
+Keep them in this repo (or a local working copy such as `O:\HSlite`); your BIP-110 / DATUM tree can stay separate.
+
+## How to run and test
+
+### 1. One-time setup
 
 ```bash
 cd sc-lite/python
-pip install -r requirements.txt
-export SCLITE_IP=192.168.x.x
-export SCLITE_PASSWORD='your-miner-password'
+pip install -r requirements.txt   # or: pip install pycryptodome
+
+export SCLITE_IP='192.168.x.x'
+export SCLITE_PASSWORD='your-miner-password'   # often factory 123456789 — change it
 ```
 
-PowerShell:
+Windows PowerShell:
 
 ```powershell
-$env:SCLITE_IP='192.168.x.x'
-$env:SCLITE_PASSWORD='your-miner-password'
+cd sc-lite\python
 pip install -r requirements.txt
+
+$env:SCLITE_IP='192.168.0.202'
+$env:SCLITE_PASSWORD='your-miner-password'
+# password can also go in sclite_temp_manager.json -> miner.password
 ```
 
-## Run / test
+### 2. Sanity check (read-only)
 
-```bash
-# 1) sanity (read-only)
+```powershell
 python sclite_snapshot.py
+```
 
-# 2) manual fan kick (keep MHz/V/PV)
+You should see the powerplan, per-board temps, fans, and hashrate.  
+If login fails, fix `SCLITE_IP` / password before anything else.
+
+### 3. Manual fan kick test
+
+```powershell
 python sclite_set_fan.py 70
 python sclite_snapshot.py
+```
 
-# 3) restore stock auto
+Fans should jump within a few seconds (e.g. ~1000 → ~1700 RPM).  
+Optional restore to stock auto:
+
+```powershell
 python sclite_restore_auto.py
+```
 
-# 4) temp manager TUI — re-kick when hot
-cp sclite_temp_manager.example.json sclite_temp_manager.json
+### 4. Run the temp manager (main tool)
+
+```powershell
+copy sclite_temp_manager.example.json sclite_temp_manager.json
 python sclite_temp_manager.py --config sclite_temp_manager.json
 ```
 
-### Temp manager keys
+#### Modes (`control.mode`) — pick one
 
-| Key | Action |
-|-----|--------|
-| `[` / `]` | `on_temp` ±0.5 °C |
-| `{` / `}` | `kick_fan` ±5 |
-| `p` | pause / resume |
-| `k` | force kick |
-| `r` | restore stock auto |
-| `s` | save config |
-| `q` | quit |
+| Mode | What it does |
+|------|----------------|
+| **`single`** | temp ≥ `on_temp` → kick to `kick_fan` |
+| **`steps`** | stepped: e.g. ≥60→55, ≥65→60, ≥70→65 (highest match wins) |
+| **`smooth`** | linear map `min_temp..max_temp` → `min_fan..max_fan`, then weighted history blend. **Fiddle those ranges** for your box. |
 
-Quick tests: press `k`; or lower `on_temp` with `[` under live board temp. Headless: `--no-ui --once`.
+```powershell
+python sclite_temp_manager.py --config sclite_temp_manager.steps.example.json
+python sclite_temp_manager.py --config sclite_temp_manager.smooth.example.json
+python sclite_temp_manager.py --config sclite_temp_manager.json --mode smooth
+```
 
-### Safety
+**Interactive keys:** `m` cycle mode · `[` `]` on_temp · `{` `}` kick_fan · `p` pause · `k` force · `r` restore · `s` save · `q` quit
 
-- Keep `tempcontrol` on unless you use the abort-safe test script.
-- Default abort in the manager example is **90 °C**.
-- `sclite_tempcontrol_test.py` forces `tempcontrol=true` on abort/timeout/Ctrl+C — still risky; don’t leave unattended.
+### Safety while testing
+
+- Keep `tempcontrol` on (default)
+- Abort **90°C** by default
+- Don’t leave `tempcontrol` off tests unattended
+
+---
+
+## Command cheat sheet
+
+```bash
+python sclite_snapshot.py
+python sclite_set_fan.py 70
+python sclite_restore_auto.py
+python sclite_watch.py
+python sclite_temp_manager.py --config sclite_temp_manager.json
+python sclite_temp_manager.py --config sclite_temp_manager.steps.example.json
+python sclite_temp_manager.py --config sclite_temp_manager.smooth.example.json
+
+# DANGEROUS: tempcontrol OFF + fan kick with auto-abort restore
+python sclite_tempcontrol_test.py --fan 70 --abort-c 88 --max-seconds 90
+```
+
+CLI: `--mode single|steps|smooth`, `--on-temp`, `--kick-fan`, `--cooldown`, `--poll`, `--abort-c`, `--board`, `--no-ui`, `--once`.

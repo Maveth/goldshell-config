@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
 """
-SC Lite temperature manager — kick fans when a board is hot.
+SC Lite temperature manager — kick / ramp fans when boards are hot.
 
-Design (v1):
-  - Poll board temps / fans over JWT HTTP API
-  - If watched temp >= on_temp, PUT fan fields to kick_fan (keep MHz/V/PV)
-  - Enforce cooldown_s between kicks (fans fade in auto mode after ~1–3 min)
-  - Interactive TUI: live temps/fans; adjust on_temp / kick_fan on the fly
-  - Abort if temp >= abort_c; optional restore-auto on exit
+Modes (config control.mode):
+  single  — if temp >= on_temp → kick_fan (original behavior)
+  steps   — stepped thresholds, e.g. >=60→55, >=65→60, >=70→65
+  smooth  — linear temp→fan map + weighted-average history blend
+            (inspired by community IPMI ramp code; fiddle smooth.* ranges)
 
 Example:
   set SCLITE_IP=192.168.0.202
-  python sclite_temp_manager.py --config sclite_temp_manager.example.json
+  python sclite_temp_manager.py --config sclite_temp_manager.json
 """
 from __future__ import annotations
 
@@ -20,6 +19,7 @@ import json
 import os
 import sys
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -35,12 +35,30 @@ except ImportError:
 DEFAULTS = {
     "miner": {"ip": "", "password": ""},
     "control": {
+        "mode": "single",  # single | steps | smooth
         "on_temp": 80.5,
         "kick_fan": 70,
         "cooldown_s": 45,
         "poll_s": 3.0,
-        "board": "max",  # "max" or 0..3
+        "board": "max",
         "force_tempcontrol_on": True,
+        # steps: highest matching temp threshold wins
+        "steps": [
+            {"temp": 60, "fan": 55},
+            {"temp": 65, "fan": 60},
+            {"temp": 70, "fan": 65},
+        ],
+        # smooth: map [min_temp..max_temp] → [min_fan..max_fan], then blend
+        "smooth": {
+            "min_temp": 60,
+            "max_temp": 85,
+            "min_fan": 40,
+            "max_fan": 80,
+            "history_len": 6,
+            "history_weight": 3,
+            "instant_weight": 1,
+            "apply_interval_s": 5,
+        },
     },
     "safety": {
         "abort_c": 90.0,
@@ -62,20 +80,32 @@ def deep_merge(base: dict, overlay: dict) -> dict:
 
 @dataclass
 class Settings:
+    mode: str = "single"
     on_temp: float = 80.5
     kick_fan: int = 70
     cooldown_s: float = 45.0
     poll_s: float = 3.0
     board: str | int = "max"
     force_tempcontrol_on: bool = True
+    steps: list[tuple[float, int]] = field(default_factory=list)
+    smooth_min_temp: float = 60.0
+    smooth_max_temp: float = 85.0
+    smooth_min_fan: int = 40
+    smooth_max_fan: int = 80
+    smooth_history_len: int = 6
+    smooth_history_weight: float = 3.0
+    smooth_instant_weight: float = 1.0
+    smooth_apply_interval_s: float = 5.0
     abort_c: float = 90.0
     restore_auto_on_exit: bool = False
     interactive: bool = True
     paused: bool = False
     last_kick_ts: float = 0.0
-    last_status: str = "boot"
+    last_applied_fan: int | None = None
     kick_count: int = 0
+    last_status: str = "boot"
     messages: list[str] = field(default_factory=list)
+    fan_history: deque[float] = field(default_factory=deque)
 
     def note(self, msg: str) -> None:
         ts = time.strftime("%H:%M:%S")
@@ -84,7 +114,7 @@ class Settings:
 
 
 def load_config(path: Path | None) -> dict:
-    cfg = json.loads(json.dumps(DEFAULTS))  # deep copy via json
+    cfg = json.loads(json.dumps(DEFAULTS))
     if path is None:
         return cfg
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -98,17 +128,41 @@ def settings_from_config(cfg: dict) -> Settings:
     board: str | int = c.get("board", "max")
     if board != "max":
         board = int(board)
-    return Settings(
-        on_temp=float(c["on_temp"]),
-        kick_fan=int(c["kick_fan"]),
-        cooldown_s=float(c["cooldown_s"]),
-        poll_s=float(c["poll_s"]),
+    mode = str(c.get("mode", "single")).lower().strip()
+    if mode not in ("single", "steps", "smooth"):
+        raise SystemExit(f"unknown control.mode={mode!r} (use single|steps|smooth)")
+
+    steps_raw = c.get("steps") or []
+    steps: list[tuple[float, int]] = []
+    for item in steps_raw:
+        steps.append((float(item["temp"]), int(item["fan"])))
+    steps.sort(key=lambda x: x[0])  # ascending by temp
+
+    sm = c.get("smooth") or {}
+    hist_len = max(1, int(sm.get("history_len", 6)))
+    st = Settings(
+        mode=mode,
+        on_temp=float(c.get("on_temp", 80.5)),
+        kick_fan=int(c.get("kick_fan", 70)),
+        cooldown_s=float(c.get("cooldown_s", 45)),
+        poll_s=float(c.get("poll_s", 3.0)),
         board=board,
         force_tempcontrol_on=bool(c.get("force_tempcontrol_on", True)),
+        steps=steps,
+        smooth_min_temp=float(sm.get("min_temp", 60)),
+        smooth_max_temp=float(sm.get("max_temp", 85)),
+        smooth_min_fan=int(sm.get("min_fan", 40)),
+        smooth_max_fan=int(sm.get("max_fan", 80)),
+        smooth_history_len=hist_len,
+        smooth_history_weight=float(sm.get("history_weight", 3)),
+        smooth_instant_weight=float(sm.get("instant_weight", 1)),
+        smooth_apply_interval_s=float(sm.get("apply_interval_s", 5)),
         abort_c=float(s["abort_c"]),
         restore_auto_on_exit=bool(s.get("restore_auto_on_exit", False)),
         interactive=bool(u.get("interactive", True)),
+        fan_history=deque(maxlen=hist_len),
     )
+    return st
 
 
 def watched_temp(boards: dict, which: str | int) -> tuple[float | None, Any]:
@@ -132,10 +186,50 @@ def watched_temp(boards: dict, which: str | int) -> tuple[float | None, Any]:
     return None, None
 
 
-def kick_fans(st: Settings) -> None:
+def target_fan_for_temp(st: Settings, temp: float) -> int | None:
+    """Return desired fan field, or None = no change / below control range."""
+    if st.mode == "single":
+        if temp >= st.on_temp:
+            return st.kick_fan
+        return None
+
+    if st.mode == "steps":
+        chosen: int | None = None
+        for thr, fan in st.steps:
+            if temp >= thr:
+                chosen = fan
+        return chosen
+
+    if st.mode == "smooth":
+        # Fiddle smooth.min_temp/max_temp/min_fan/max_fan to taste.
+        if temp <= st.smooth_min_temp:
+            instant = float(st.smooth_min_fan)
+        elif temp >= st.smooth_max_temp:
+            instant = float(st.smooth_max_fan)
+        else:
+            span_t = max(1e-6, st.smooth_max_temp - st.smooth_min_temp)
+            span_f = st.smooth_max_fan - st.smooth_min_fan
+            instant = st.smooth_min_fan + (temp - st.smooth_min_temp) / span_t * span_f
+
+        # Weighted history (newest heaviest), like community IPMI ramp:
+        # avg = sum(hist[i] * (n-i)) / sum(1..n); blend = (avg*Hw + instant*Iw)/(Hw+Iw)
+        st.fan_history.appendleft(instant)
+        n = len(st.fan_history)
+        weights = list(range(n, 0, -1))  # newest index 0 gets weight n
+        wsum = sum(weights)
+        avg = sum(v * w for v, w in zip(st.fan_history, weights)) / wsum
+        hw = st.smooth_history_weight
+        iw = st.smooth_instant_weight
+        blended = (avg * hw + instant * iw) / max(1e-6, hw + iw)
+        return int(round(max(1, min(100, blended))))
+
+    return None
+
+
+def apply_fan(st: Settings, fan: int, why: str) -> None:
     cur = sc.get_setting()
     mhz, mv, _a, _b, pv = sc.parse_plan(str(cur.get("manualPowerplan")))
-    new_plan = sc.build_plan(mhz, mv, st.kick_fan, st.kick_fan, pv)
+    new_plan = sc.build_plan(mhz, mv, fan, fan, pv)
     payload = dict(cur)
     payload["manual"] = True
     payload["manualPowerplan"] = new_plan
@@ -144,9 +238,10 @@ def kick_fans(st: Settings) -> None:
         payload["tempcontrol"] = True
     sc.put_setting(payload)
     st.last_kick_ts = time.time()
+    st.last_applied_fan = fan
     st.kick_count += 1
-    st.last_status = f"KICKED fan={st.kick_fan}"
-    st.note(f"kick #{st.kick_count} -> {new_plan}")
+    st.last_status = f"{why} fan={fan}"
+    st.note(f"#{st.kick_count} {why} -> {new_plan}")
 
 
 def restore_auto() -> None:
@@ -173,35 +268,59 @@ def read_key() -> str | None:
         return None
     ch = msvcrt.getwch()
     if ch in ("\x00", "\xe0"):
-        msvcrt.getwch()  # swallow arrow prefix
+        msvcrt.getwch()
         return None
     return ch
 
 
-def render(st: Settings, setting: dict, boards: dict, watched: float | None, board_row) -> None:
-    # ANSI clear — works in Windows Terminal / modern consoles
+def render(
+    st: Settings,
+    setting: dict,
+    boards: dict,
+    watched: float | None,
+    board_row,
+    desired: int | None,
+) -> None:
     sys.stdout.write("\033[H\033[J")
-    cd_left = max(0.0, st.cooldown_s - (time.time() - st.last_kick_ts))
-    if st.last_kick_ts <= 0:
-        cd_left = 0.0
+    interval = (
+        st.smooth_apply_interval_s if st.mode == "smooth" else st.cooldown_s
+    )
+    cd_left = 0.0
+    if st.last_kick_ts > 0:
+        cd_left = max(0.0, interval - (time.time() - st.last_kick_ts))
     pause = "PAUSED" if st.paused else "RUN"
     print("SC Lite temp manager")
-    print(f"host={sc.host()}  mode={pause}  status={st.last_status}")
+    print(
+        f"host={sc.host()}  ctrl={st.mode}  {pause}  status={st.last_status}"
+    )
     print(
         f"plan={setting.get('manualPowerplan')}  "
         f"manual={setting.get('manual')}  tc={setting.get('tempcontrol')}"
     )
+    if st.mode == "single":
+        print(
+            f"on_temp={st.on_temp:.1f}C  kick_fan={st.kick_fan}  "
+            f"cooldown={st.cooldown_s:.0f}s (left {cd_left:.0f}s)"
+        )
+    elif st.mode == "steps":
+        step_s = " ".join(f"{t:g}→{f}" for t, f in st.steps)
+        print(f"steps: {step_s}  cooldown={st.cooldown_s:.0f}s (left {cd_left:.0f}s)")
+    else:
+        print(
+            f"smooth: temp {st.smooth_min_temp:g}..{st.smooth_max_temp:g}C → "
+            f"fan {st.smooth_min_fan}..{st.smooth_max_fan}  "
+            f"blend hist*{st.smooth_history_weight:g}+inst*{st.smooth_instant_weight:g}  "
+            f"apply every {st.smooth_apply_interval_s:g}s (left {cd_left:.0f}s)"
+        )
     print(
-        f"on_temp={st.on_temp:.1f}C  kick_fan={st.kick_fan}  "
-        f"cooldown={st.cooldown_s:.0f}s (left {cd_left:.0f}s)  "
-        f"abort={st.abort_c:.1f}C  board={st.board}  kicks={st.kick_count}"
+        f"abort={st.abort_c:.1f}C  board={st.board}  applies={st.kick_count}  "
+        f"desired={desired if desired is not None else '-'}  "
+        f"last={st.last_applied_fan if st.last_applied_fan is not None else '-'}"
     )
     print("-" * 72)
     print(f"{'BOARD':<6} {'TEMP':>8} {'FANS':<40} {'TH/s':>8}")
     for b in boards.get("boards") or []:
-        mark = ""
-        if board_row and b.get("id") == board_row.get("id"):
-            mark = " <-- watch"
+        mark = " <-- watch" if board_row and b.get("id") == board_row.get("id") else ""
         print(
             f"{str(b.get('id')):<6} {str(b.get('temp')):>8} "
             f"{str(b.get('fans')):<40} {b.get('hr_ths', 0):8.3f}{mark}"
@@ -210,8 +329,8 @@ def render(st: Settings, setting: dict, boards: dict, watched: float | None, boa
     w = f"{watched:.1f}C" if watched is not None else "n/a"
     print(f"watched temp: {w}")
     print(
-        "keys: [ / ] on_temp -0.5/+0.5   { / } kick_fan -5/+5   "
-        "p pause  k force-kick  r restore-auto  s save-config  q quit"
+        "keys: m cycle-mode   [ ] on_temp (single)   { } kick_fan (single)   "
+        "p pause  k force  r restore  s save  q quit"
     )
     if st.messages:
         print("log:")
@@ -222,23 +341,39 @@ def render(st: Settings, setting: dict, boards: dict, watched: float | None, boa
 
 def save_runtime_config(path: Path, cfg: dict, st: Settings) -> None:
     out = json.loads(json.dumps(cfg))
+    out["control"]["mode"] = st.mode
     out["control"]["on_temp"] = st.on_temp
     out["control"]["kick_fan"] = st.kick_fan
     out["control"]["cooldown_s"] = st.cooldown_s
     out["control"]["poll_s"] = st.poll_s
     out["control"]["board"] = st.board
+    out["control"]["steps"] = [{"temp": t, "fan": f} for t, f in st.steps]
+    out["control"]["smooth"] = {
+        "min_temp": st.smooth_min_temp,
+        "max_temp": st.smooth_max_temp,
+        "min_fan": st.smooth_min_fan,
+        "max_fan": st.smooth_max_fan,
+        "history_len": st.smooth_history_len,
+        "history_weight": st.smooth_history_weight,
+        "instant_weight": st.smooth_instant_weight,
+        "apply_interval_s": st.smooth_apply_interval_s,
+    }
     out["safety"]["abort_c"] = st.abort_c
     path.write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
     st.note(f"saved {path}")
 
 
 def handle_key(ch: str, st: Settings, cfg: dict, cfg_path: Path | None) -> str | None:
-    """Return 'quit' to exit, else None."""
     if ch in ("q", "Q"):
         return "quit"
     if ch in ("p", "P"):
         st.paused = not st.paused
         st.note("paused" if st.paused else "resumed")
+    elif ch in ("m", "M"):
+        order = ["single", "steps", "smooth"]
+        i = order.index(st.mode) if st.mode in order else 0
+        st.mode = order[(i + 1) % len(order)]
+        st.note(f"mode={st.mode}")
     elif ch == "[":
         st.on_temp = round(st.on_temp - 0.5, 1)
         st.note(f"on_temp={st.on_temp}")
@@ -253,7 +388,10 @@ def handle_key(ch: str, st: Settings, cfg: dict, cfg_path: Path | None) -> str |
         st.note(f"kick_fan={st.kick_fan}")
     elif ch in ("k", "K"):
         try:
-            kick_fans(st)
+            fan = st.last_applied_fan or st.kick_fan
+            if st.mode == "steps" and st.steps:
+                fan = st.steps[-1][1]
+            apply_fan(st, fan, "FORCE")
         except Exception as e:
             st.note(f"kick failed: {e}")
     elif ch in ("r", "R"):
@@ -261,6 +399,7 @@ def handle_key(ch: str, st: Settings, cfg: dict, cfg_path: Path | None) -> str |
             restore_auto()
             st.note("restored auto/stock plan")
             st.last_status = "RESTORED_AUTO"
+            st.last_applied_fan = None
         except Exception as e:
             st.note(f"restore failed: {e}")
     elif ch in ("s", "S"):
@@ -273,101 +412,110 @@ def handle_key(ch: str, st: Settings, cfg: dict, cfg_path: Path | None) -> str |
 
 
 def control_step(st: Settings) -> str:
-    """One poll/control iteration. Returns 'ok' or 'abort'."""
     setting = sc.get_setting()
     boards = sc.board_snapshot()
     watched, row = watched_temp(boards, st.board)
+    desired: int | None = None
+    if watched is not None:
+        desired = target_fan_for_temp(st, watched)
 
     if watched is not None and watched >= st.abort_c:
         st.last_status = f"ABORT {watched}>={st.abort_c}"
         st.note(st.last_status)
-        # emergency: kick high + ensure tempcontrol on
         try:
-            saved_fan = st.kick_fan
-            st.kick_fan = max(st.kick_fan, 80)
-            st.force_tempcontrol_on = True
-            kick_fans(st)
-            st.kick_fan = saved_fan
+            apply_fan(st, max(st.kick_fan, st.smooth_max_fan, 80), "ABORT")
         except Exception as e:
             st.note(f"abort kick failed: {e}")
         if st.interactive:
-            render(st, setting, boards, watched, row)
+            render(st, setting, boards, watched, row, desired)
         else:
             print(st.last_status)
         return "abort"
 
     if st.paused:
         st.last_status = "PAUSED"
+        if st.interactive:
+            render(st, setting, boards, watched, row, desired)
         return "ok"
 
     now = time.time()
-    in_cooldown = st.last_kick_ts > 0 and (now - st.last_kick_ts) < st.cooldown_s
-    if watched is not None and watched >= st.on_temp and not in_cooldown:
-        try:
-            kick_fans(st)
-        except Exception as e:
-            st.note(f"auto kick failed: {e}")
-            st.last_status = f"ERROR {e}"
+    interval = (
+        st.smooth_apply_interval_s if st.mode == "smooth" else st.cooldown_s
+    )
+    in_cooldown = st.last_kick_ts > 0 and (now - st.last_kick_ts) < interval
+
+    if desired is not None and not in_cooldown:
+        # Avoid redundant PUTs when already at target
+        if st.last_applied_fan == desired and st.mode != "smooth":
+            st.last_status = f"HOLD fan={desired}"
+        elif st.last_applied_fan == desired and st.mode == "smooth":
+            st.last_status = f"SMOOTH hold={desired}"
+            st.last_kick_ts = now  # still pace applies
+        else:
+            try:
+                apply_fan(st, desired, st.mode.upper())
+            except Exception as e:
+                st.note(f"apply failed: {e}")
+                st.last_status = f"ERROR {e}"
     elif in_cooldown:
         st.last_status = "COOLDOWN"
-    elif watched is not None and watched < st.on_temp:
+    elif desired is None:
         st.last_status = "IDLE_COOL"
     else:
         st.last_status = "IDLE"
 
-    # Refresh setting after possible PUT so UI/log show the new plan
     try:
         setting = sc.get_setting()
         boards = sc.board_snapshot()
         watched, row = watched_temp(boards, st.board)
+        if watched is not None:
+            desired = target_fan_for_temp(st, watched)
     except Exception:
         pass
 
     if st.interactive:
-        render(st, setting, boards, watched, row)
+        render(st, setting, boards, watched, row, desired)
     else:
         fans0 = (boards.get("boards") or [{}])[0].get("fans")
         print(
-            f"t={time.strftime('%H:%M:%S')} watched={watched} "
-            f"on={st.on_temp} fans0={fans0} status={st.last_status} "
-            f"paused={st.paused} kicks={st.kick_count}"
+            f"t={time.strftime('%H:%M:%S')} mode={st.mode} watched={watched} "
+            f"desired={desired} fans0={fans0} status={st.last_status} "
+            f"applies={st.kick_count}"
         )
-
     return "ok"
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="SC Lite fan kick temp manager")
+    ap = argparse.ArgumentParser(description="SC Lite fan / temp manager")
+    ap.add_argument("--config", type=Path, default=None)
     ap.add_argument(
-        "--config",
-        type=Path,
+        "--mode",
+        choices=["single", "steps", "smooth"],
         default=None,
-        help="JSON config (see sclite_temp_manager.example.json)",
+        help="override control.mode",
     )
     ap.add_argument("--on-temp", type=float, default=None)
     ap.add_argument("--kick-fan", type=int, default=None)
     ap.add_argument("--cooldown", type=float, default=None)
     ap.add_argument("--poll", type=float, default=None)
     ap.add_argument("--abort-c", type=float, default=None)
-    ap.add_argument("--board", default=None, help="'max' or board id 0..3")
-    ap.add_argument("--no-ui", action="store_true", help="headless log mode")
-    ap.add_argument(
-        "--once",
-        action="store_true",
-        help="single poll/control step then exit",
-    )
+    ap.add_argument("--board", default=None)
+    ap.add_argument("--no-ui", action="store_true")
+    ap.add_argument("--once", action="store_true")
     args = ap.parse_args()
 
     cfg = load_config(args.config)
     miner = cfg.get("miner") or {}
     ip = miner.get("ip") or os.environ.get("SCLITE_IP") or ""
     password = miner.get("password") or os.environ.get("SCLITE_PASSWORD") or ""
-    if ip:
+    if ip and "x.x" not in ip:
         sc.configure(ip=ip, password=password if password else None)
     elif password:
         sc.configure(password=password)
 
     st = settings_from_config(cfg)
+    if args.mode:
+        st.mode = args.mode
     if args.on_temp is not None:
         st.on_temp = args.on_temp
     if args.kick_fan is not None:
@@ -383,17 +531,19 @@ def main() -> None:
     if args.no_ui:
         st.interactive = False
 
-    if st.abort_c <= st.on_temp:
+    if st.abort_c <= (
+        st.on_temp if st.mode == "single" else st.smooth_max_temp
+    ):
         print(
-            f"WARNING: abort_c ({st.abort_c}) <= on_temp ({st.on_temp}); "
-            "raising abort_c to on_temp+5",
+            f"WARNING: abort_c ({st.abort_c}) is low vs control range; "
+            "raising abort_c",
             file=sys.stderr,
         )
-        st.abort_c = st.on_temp + 5.0
+        st.abort_c = max(st.abort_c, st.on_temp + 5, st.smooth_max_temp + 5)
 
     print(
-        f"connecting {sc.host()} on_temp={st.on_temp} kick_fan={st.kick_fan} "
-        f"cooldown={st.cooldown_s}s abort={st.abort_c}"
+        f"connecting {sc.host()} mode={st.mode} abort={st.abort_c} "
+        f"poll={st.poll_s}s"
     )
     sc.login()
     st.note("logged in")
@@ -401,7 +551,6 @@ def main() -> None:
     exit_code = 0
     try:
         while True:
-            # drain keys during wait for snappy UI
             deadline = time.time() + st.poll_s
             while True:
                 if st.interactive:
