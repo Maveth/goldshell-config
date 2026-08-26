@@ -1,5 +1,8 @@
 # SC Lite control notes (fw 2.2.0)
 
+**Want the practical guide?** → [`CONNECT_AND_FANS.md`](CONNECT_AND_FANS.md)  
+(connect over LAN, get a JWT, kick fans, safety, tempcontrol-off abort test)
+
 High-level **findings list** (ports, APIs we’re using, thermal behavior): see the [repo root README](../README.md#findings-so-far-sc-lite-fw-220).
 
 ## Requirements

@@ -2,6 +2,9 @@
 
 Auto-login JWT tools for firmware 2.2.0.
 
+Full walkthrough (ports, auth, fan kicks, safety):  
+[`../CONNECT_AND_FANS.md`](../CONNECT_AND_FANS.md)
+
 ## Setup
 
 ```bash
