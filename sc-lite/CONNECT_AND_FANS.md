@@ -175,6 +175,31 @@ python sclite_restore_auto.py
 python sclite_watch.py --seconds 210 --every 30
 ```
 
+### Automatic temp manager (recommended for unattended kicks)
+
+Because auto mode eases fans back down after ~1–3 minutes, use a small watchdog that **re-kicks** when the hot board climbs again:
+
+```bash
+cp sclite_temp_manager.example.json sclite_temp_manager.json
+# edit on_temp / kick_fan / cooldown_s as needed
+python sclite_temp_manager.py --config sclite_temp_manager.json
+```
+
+Defaults in the example config: kick to **70** when watched temp ≥ **80.5°C**, cooldown **45s**, abort ≥ **90°C**.
+
+Interactive keys:
+
+| Key | Action |
+|-----|--------|
+| `[` / `]` | `on_temp` −0.5 / +0.5 °C |
+| `{` / `}` | `kick_fan` −5 / +5 |
+| `p` | pause / resume control |
+| `k` | force kick now |
+| `r` | restore stock auto plan |
+| `s` | save current thresholds back to config |
+| `q` | quit |
+
+See `python/README.md` for headless flags (`--no-ui`, `--once`, CLI overrides).
 ## 5. `tempcontrol` off (advanced / risky)
 
 `tempcontrol` **is** exposed on the API (boolean).  

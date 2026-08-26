@@ -44,7 +44,7 @@ Covers ports, JWT login (browser or auto AES), powerplan fan kicks, how long fan
 | `GET /dbg/psinfo` | Process list (`intminer`, `minerd`, `fanctrl`, local `/bin/login`) |
 | TCP `:4028` | Unauthenticated miner API reads; write cmds exist but `Access: N` |
 | Upstream bash (`miner-profile` etc.) | Reclock profiles (browser JWT) |
-| `sc-lite/python/*` | Auto-login helpers + abort-safe `tempcontrol` test |
+| `sc-lite/python/*` | Auto-login helpers, abort-safe `tempcontrol` test, **temp manager** (kick fans when hot) |
 
 ### Behavior findings
 

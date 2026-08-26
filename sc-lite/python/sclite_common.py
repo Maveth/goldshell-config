@@ -20,6 +20,16 @@ IV = b"\0" * 16
 _token: str | None = None
 
 
+def configure(ip: str | None = None, password: str | None = None) -> None:
+    """Override miner IP / password (also used by temp manager config)."""
+    global _token
+    if ip:
+        os.environ["SCLITE_IP"] = ip
+    if password is not None:
+        os.environ["SCLITE_PASSWORD"] = password
+    _token = None  # force re-login next call
+
+
 def host() -> str:
     ip = os.environ.get("SCLITE_IP", DEFAULT_IP)
     if ip.startswith("http://") or ip.startswith("https://"):
