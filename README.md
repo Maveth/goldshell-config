@@ -50,6 +50,10 @@ These helpers only talk to the miner over LAN — they are not tied to a BIP-110
 | Upstream bash (`miner-profile` etc.) | Reclock profiles (browser JWT) |
 | `sc-lite/python/*` | Auto-login helpers, abort-safe `tempcontrol` test, **temp manager** (kick fans when hot) |
 
+### Lab known fact: ~3s Stratum flap is NORMAL
+
+Goldshell `intminer` often opens/closes DATUM Stratum about every **~3 seconds** in logs. **That is expected — not a DATUM failure.** Judge health by DATUM client row (Subbed + username), then **DiffA / hashrate**, not by the flap lines.
+
 ### Behavior findings
 
 1. **Powerplan string** shape:  
