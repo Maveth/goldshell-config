@@ -453,22 +453,34 @@ def control_step(st: Settings) -> str:
     in_cooldown = st.last_kick_ts > 0 and (now - st.last_kick_ts) < interval
 
     if desired is not None and not in_cooldown:
-        # Avoid redundant PUTs when already at target
-        if st.last_applied_fan == desired and st.mode != "smooth":
-            st.last_status = f"HOLD fan={desired}"
-        elif st.last_applied_fan == desired and st.mode == "smooth":
+        # With tempcontrol ON, a kick is only a pulse (~1–3 min live fans).
+        # single/steps must RE-APPLY after cooldown while still in-zone,
+        # otherwise we HOLD forever and never re-pulse (looks "stuck in zone 2").
+        # When tc is OFF the plan sticks — skip redundant PUTs if unchanged.
+        same = st.last_applied_fan == desired
+        if same and st.mode == "smooth":
             st.last_status = f"SMOOTH hold={desired}"
-            st.last_kick_ts = now  # still pace applies
+            st.last_kick_ts = now
+        elif same and not st.force_tempcontrol_on:
+            st.last_status = f"HOLD fan={desired}"
         else:
             try:
-                apply_fan(st, desired, st.mode.upper())
+                why = st.mode.upper()
+                if same:
+                    why = f"{why}_REPULSE"
+                apply_fan(st, desired, why)
             except Exception as e:
                 st.note(f"apply failed: {e}")
                 st.last_status = f"ERROR {e}"
     elif in_cooldown:
         st.last_status = "COOLDOWN"
     elif desired is None:
+        # Below all step thresholds / below on_temp — clear latch so a
+        # later rise re-enters cleanly; optional: could restore_auto here.
         st.last_status = "IDLE_COOL"
+        if st.last_applied_fan is not None and not in_cooldown:
+            # Allow next zone entry to always PUT even if same fan number
+            st.last_applied_fan = None
     else:
         st.last_status = "IDLE"
 
