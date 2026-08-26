@@ -1,0 +1,5 @@
+__pycache__/
+*.py[cod]
+*.runtime.json
+sclite_temp_manager.json
+.DS_Store
