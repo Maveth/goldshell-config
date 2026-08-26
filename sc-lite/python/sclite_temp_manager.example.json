@@ -1,0 +1,21 @@
+{
+  "miner": {
+    "ip": "192.168.x.x",
+    "password": ""
+  },
+  "control": {
+    "on_temp": 80.5,
+    "kick_fan": 70,
+    "cooldown_s": 45,
+    "poll_s": 3.0,
+    "board": "max",
+    "force_tempcontrol_on": true
+  },
+  "safety": {
+    "abort_c": 90.0,
+    "restore_auto_on_exit": false
+  },
+  "ui": {
+    "interactive": true
+  }
+}
