@@ -9,6 +9,7 @@ Modes (config control.mode):
   smooth  — continuous ramp; intended for tempcontrol OFF so stock fanctrl
             does not fight you. Linear temp→fan map + weighted history blend.
             Fiddle smooth.* ranges to taste. Riskier — keep abort_c set.
+            *** NOT fully tested yet — treat as experimental. ***
 
 Example:
   set SCLITE_IP=192.168.0.202

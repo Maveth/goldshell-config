@@ -1,4 +1,5 @@
 {
+  "_comment": "EXPERIMENTAL: smooth/continuous mode has NOT been fully tested on SC Lite yet. Prefer single or steps until you validate.",
   "miner": {
     "ip": "192.168.x.x",
     "password": ""

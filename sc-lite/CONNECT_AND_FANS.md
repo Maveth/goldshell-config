@@ -112,7 +112,7 @@ Because auto mode eases fans down, a watchdog can re-apply fan fields when hot.
 |------|------|----------------|
 | `single` | **Basic** — one threshold → one kick | Keep **ON** |
 | `steps` | **Advanced but safer** — temp ladder (highest match) | Keep **ON** |
-| `smooth` | Continuous weighted ramp | Prefer **OFF** (stock fanctrl fights ramps). Fiddle `smooth.min_temp/max_temp/min_fan/max_fan`. Use abort + restore-on-exit. |
+| `smooth` | Continuous weighted ramp (**experimental — not fully tested yet**) | Prefer **OFF** (stock fanctrl fights ramps). Fiddle `smooth.min_temp/max_temp/min_fan/max_fan`. Use abort + restore-on-exit. |
 
 ```bash
 cp sclite_temp_manager.example.json sclite_temp_manager.json
