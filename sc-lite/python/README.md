@@ -58,50 +58,30 @@ python sclite_restore_auto.py
 
 ```powershell
 copy sclite_temp_manager.example.json sclite_temp_manager.json
-# edit on_temp / kick_fan / cooldown_s if you want
 python sclite_temp_manager.py --config sclite_temp_manager.json
 ```
 
-Example defaults: kick fans to **70** when watched temp ≥ **80.5°C**, cooldown **45s**, abort ≥ **90°C**.
+#### Modes (`control.mode`) — pick one
 
-**Interactive keys**
-
-| Key | Action |
-|-----|--------|
-| `[` / `]` | `on_temp` −0.5 / +0.5 °C |
-| `{` / `}` | `kick_fan` −5 / +5 |
-| `p` | pause / resume control |
-| `k` | force kick now |
-| `r` | restore stock auto plan |
-| `s` | save current thresholds into the config file |
-| `q` | quit |
-
-### 5. Easy ways to test the logic
-
-**A. Force a kick without waiting for heat**  
-Start the manager → press **`k`** → fans should spike; status → `KICKED` then `COOLDOWN`.
-
-**B. Threshold test**  
-Press **`[`** until `on_temp` is under the current hot-board temp.  
-Within one poll (~3s) it should auto-kick (unless still in cooldown).
-
-**C. Headless one-shot**
+| Mode | What it does |
+|------|----------------|
+| **`single`** | temp ≥ `on_temp` → kick to `kick_fan` |
+| **`steps`** | stepped: e.g. ≥60→55, ≥65→60, ≥70→65 (highest match wins) |
+| **`smooth`** | linear map `min_temp..max_temp` → `min_fan..max_fan`, then weighted history blend. **Fiddle those ranges** for your box. |
 
 ```powershell
-python sclite_temp_manager.py --config sclite_temp_manager.json --no-ui --once
+python sclite_temp_manager.py --config sclite_temp_manager.steps.example.json
+python sclite_temp_manager.py --config sclite_temp_manager.smooth.example.json
+python sclite_temp_manager.py --config sclite_temp_manager.json --mode smooth
 ```
 
-Prints one line; kicks if watched temp ≥ `on_temp`.
-
-**D. Edit config, then run**  
-Open `sclite_temp_manager.json` and set e.g. `"on_temp": 80.5`, `"kick_fan": 70`, save, start the manager again.
+**Interactive keys:** `m` cycle mode · `[` `]` on_temp · `{` `}` kick_fan · `p` pause · `k` force · `r` restore · `s` save · `q` quit
 
 ### Safety while testing
 
-- Keep `tempcontrol` on (default in config / `force_tempcontrol_on: true`)
-- Abort is **90°C** by default — emergency high kick + exit if hit
-- Do not leave `tempcontrol` off tests running unattended
-- Press `q` to quit; `r` if you want the stock auto plan back
+- Keep `tempcontrol` on (default)
+- Abort **90°C** by default
+- Don’t leave `tempcontrol` off tests unattended
 
 ---
 
@@ -113,20 +93,11 @@ python sclite_set_fan.py 70
 python sclite_restore_auto.py
 python sclite_watch.py
 python sclite_temp_manager.py --config sclite_temp_manager.json
+python sclite_temp_manager.py --config sclite_temp_manager.steps.example.json
+python sclite_temp_manager.py --config sclite_temp_manager.smooth.example.json
 
 # DANGEROUS: tempcontrol OFF + fan kick with auto-abort restore
 python sclite_tempcontrol_test.py --fan 70 --abort-c 88 --max-seconds 90
 ```
 
-`sclite_tempcontrol_test.py` always forces `tempcontrol=true` on abort, timeout, Ctrl+C, or error.
-
-## Temp manager design (v1)
-
-- Watches `board: "max"` (hottest) or a fixed board id `0..3`
-- When temp ≥ `on_temp`, PUT fan fields to `kick_fan` (keep MHz / V / PV)
-- Forces / leaves `tempcontrol=true`
-- `cooldown_s` prevents kick spam while fans are still elevated (~1–3 min fade in auto mode)
-- Interactive UI shows live temps/fans and lets you nudge thresholds
-- `abort_c` emergency path
-
-CLI overrides also work: `--on-temp`, `--kick-fan`, `--cooldown`, `--poll`, `--abort-c`, `--board`, `--no-ui`, `--once`.
+CLI: `--mode single|steps|smooth`, `--on-temp`, `--kick-fan`, `--cooldown`, `--poll`, `--abort-c`, `--board`, `--no-ui`, `--once`.
