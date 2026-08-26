@@ -1,10 +1,12 @@
 # SC Lite control notes (fw 2.2.0)
 
+High-level **findings list** (ports, APIs we’re using, thermal behavior): see the [repo root README](../README.md#findings-so-far-sc-lite-fw-220).
+
 ## Requirements
 
 - Goldshell **SC Lite**
 - Firmware **2.2.0** (what we tested)
-- Network reachability to the miner HTTP UI (`:80`)
+- Network reachability to the miner HTTP UI (`:80`); optional `:4028` for quick reads
 - Either:
   - browser JWT (upstream bash scripts), or
   - Python 3 + `pycryptodome` (MaVeTh helpers — auto login)
@@ -13,16 +15,18 @@
 
 On our unit:
 
-| Port | Result |
-|------|--------|
-| 22 / 23 / 2222 | Closed |
-| 80 | Open — Yotta MC web UI + `/mcb` + `/dbg` |
-| 443 | Closed |
-| 4028 | Open — BFGMiner/intminer JSON API (mostly read-only) |
+| Port | Result | How we use it |
+|------|--------|----------------|
+| **80** | **Open** | Primary control: web UI, `/user/login`, `/mcb/*`, `/dbg/*` |
+| **4028** | **Open** | BFGMiner/intminer JSON API — fast unauthenticated reads (`summary`, `pools`, `devs`, `coin`, `config`) |
+| 22 / 23 / 2222 | Closed | No SSH/telnet |
+| 443 | Closed | No HTTPS UI |
 
 `ps` via `/dbg/psinfo` shows Linux + busybox, `intminer -c /usr/config/bfgminer/bfgminer.json`, and a local `/bin/login` (console/UART), **not** sshd.
 
 When Mechanic’s tools “write settings,” they are doing **HTTP `PUT /mcb/setting`**. The box’s `minerd` persists config under `/usr/config/…`. That is not SSH file editing from outside.
+
+`:4028` write-ish commands (`setconfig`, `save`, `addpool`, `privileged`) returned **`Access: N`** here — useful for monitoring, not for config changes (use `:80` + JWT instead).
 
 ## Auth / JWT
 
