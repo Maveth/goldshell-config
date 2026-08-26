@@ -11,7 +11,11 @@ This fork documents what we verified in the **MaVeTh TN4 / BIP-110 lab** on a li
 
 **Start here:** [`sc-lite/CONNECT_AND_FANS.md`](sc-lite/CONNECT_AND_FANS.md)
 
-Covers ports, JWT login (browser or auto AES), powerplan fan kicks, how long fans stay up in auto mode, and an abort-safe `tempcontrol` off test.
+**Run & test the Python tools / temp manager:** [`sc-lite/python/README.md`](sc-lite/python/README.md#how-to-run-and-test)
+
+Covers ports, JWT login (browser or auto AES), powerplan fan kicks, how long fans stay up in auto mode, the interactive temp manager, and an abort-safe `tempcontrol` off test.
+
+These helpers only talk to the miner over LAN — they are not tied to a BIP-110 checkout. A local working copy (e.g. `O:\HSlite`) is fine; keep this repo as the canonical source.
 
 ## Findings so far (SC Lite fw 2.2.0)
 

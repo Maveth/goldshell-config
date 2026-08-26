@@ -177,11 +177,20 @@ python sclite_watch.py --seconds 210 --every 30
 
 ### Automatic temp manager (recommended for unattended kicks)
 
-Because auto mode eases fans back down after ~1–3 minutes, use a small watchdog that **re-kicks** when the hot board climbs again:
+Because auto mode eases fans back down after ~1–3 minutes, use a small watchdog that **re-kicks** when the hot board climbs again.
+
+**Step-by-step run & test:** see [`python/README.md`](python/README.md#how-to-run-and-test) (setup → snapshot → manual kick → TUI → test ideas).
+
+Short version:
 
 ```bash
+cd sc-lite/python
+pip install -r requirements.txt
+export SCLITE_IP='192.168.x.x'
+export SCLITE_PASSWORD='your-miner-password'
+
+python sclite_snapshot.py          # sanity check
 cp sclite_temp_manager.example.json sclite_temp_manager.json
-# edit on_temp / kick_fan / cooldown_s as needed
 python sclite_temp_manager.py --config sclite_temp_manager.json
 ```
 
@@ -194,13 +203,12 @@ Interactive keys:
 | `[` / `]` | `on_temp` −0.5 / +0.5 °C |
 | `{` / `}` | `kick_fan` −5 / +5 |
 | `p` | pause / resume control |
-| `k` | force kick now |
+| `k` | force kick now (good first test) |
 | `r` | restore stock auto plan |
 | `s` | save current thresholds back to config |
 | `q` | quit |
 
-See `python/README.md` for headless flags (`--no-ui`, `--once`, CLI overrides).
-## 5. `tempcontrol` off (advanced / risky)
+Quick tests: press `k` to force a kick; or lower `on_temp` with `[` until it is under the live hot-board temp and wait one poll. Headless: `--no-ui --once`.## 5. `tempcontrol` off (advanced / risky)
 
 `tempcontrol` **is** exposed on the API (boolean).  
 `target_temp` (**85°C**) is **not** editable via `/mcb/setting`.
