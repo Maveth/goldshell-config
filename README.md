@@ -16,6 +16,12 @@ The SC5-Pro has been more annoying/sensitive. If you make progress on any Blake2
 | [`sc-lite/miner-health`](sc-lite/miner-health) / [`miner-runtime`](sc-lite/miner-runtime) | Bash status helpers |
 | [`sc-lite/python/`](sc-lite/python/) | Auto-login Python tools + **temp manager** (fan kick when hot) |
 
+## Other boxes
+
+| Path | What |
+|------|------|
+| [\sc-lite/HS_BOX_NOTES.md\](sc-lite/HS_BOX_NOTES.md) | HS Box dialect (**unconfirmed**) — not in default helpers yet |
+
 ### Fan control (verified)
 
 Powerplan string shape:
