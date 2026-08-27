@@ -101,7 +101,7 @@ Important fields:
 
 | Field | Meaning |
 |-------|---------|
-| `manualPowerplan` | Plan string (SC Lite or HS Box — see below) |
+| `manualPowerplan` | String: `"625 MHz 9100 V 40 RPM 40 RPM PV 9400"` |
 | `manual` | Must be `true` for a custom plan to stick |
 | `tempcontrol` | `true` = auto `fanctrl` toward ~**85°C** |
 | `select` | Preset level (`0` stock) |
@@ -109,13 +109,8 @@ Important fields:
 Powerplan shape:
 
 ```text
-<MHz> MHz <V> V <fanA> RPM <fanB> RPM [PV <pv>]
+<MHz> MHz <mV> V <fanA> RPM <fanB> RPM PV <pv>
 ```
-
-- **SC Lite:** `625 MHz 9100 V 40 RPM 40 RPM PV 9400` (integer-style V + PV)
-- **HS Box:** `850 MHz 0.440 V 50 RPM 50 RPM` (float V; **PV often omitted**)
-
-`parse_plan` / `build_plan` accept both (MHz/V kept as strings so floats round-trip).
 
 Internal encoding (from `/dbg/minerhistory`):
 
