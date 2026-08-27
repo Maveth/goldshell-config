@@ -1,0 +1,30 @@
+{
+  "_comment": "EXPERIMENTAL: smooth/continuous mode has NOT been fully tested on SC Lite yet. Prefer single or steps until you validate.",
+  "miner": {
+    "ip": "192.168.x.x",
+    "password": ""
+  },
+  "control": {
+    "mode": "smooth",
+    "poll_s": 3.0,
+    "board": "max",
+    "force_tempcontrol_on": false,
+    "smooth": {
+      "min_temp": 60,
+      "max_temp": 85,
+      "min_fan": 40,
+      "max_fan": 80,
+      "history_len": 6,
+      "history_weight": 3,
+      "instant_weight": 1,
+      "apply_interval_s": 5
+    }
+  },
+  "safety": {
+    "abort_c": 88.0,
+    "restore_auto_on_exit": true
+  },
+  "ui": {
+    "interactive": true
+  }
+}

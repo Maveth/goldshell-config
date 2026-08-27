@@ -1,0 +1,37 @@
+{
+  "miner": {
+    "ip": "192.168.x.x",
+    "password": ""
+  },
+  "control": {
+    "mode": "single",
+    "on_temp": 80.5,
+    "kick_fan": 70,
+    "cooldown_s": 45,
+    "poll_s": 3.0,
+    "board": "max",
+    "force_tempcontrol_on": true,
+    "steps": [
+      { "temp": 60, "fan": 55 },
+      { "temp": 65, "fan": 60 },
+      { "temp": 70, "fan": 65 }
+    ],
+    "smooth": {
+      "min_temp": 60,
+      "max_temp": 85,
+      "min_fan": 40,
+      "max_fan": 80,
+      "history_len": 6,
+      "history_weight": 3,
+      "instant_weight": 1,
+      "apply_interval_s": 5
+    }
+  },
+  "safety": {
+    "abort_c": 90.0,
+    "restore_auto_on_exit": false
+  },
+  "ui": {
+    "interactive": true
+  }
+}
