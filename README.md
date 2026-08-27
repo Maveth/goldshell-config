@@ -17,11 +17,13 @@ Covers ports, JWT login (browser or auto AES), powerplan fan kicks, how long fan
 
 These helpers only talk to the miner over LAN — they are not tied to a BIP-110 checkout. A local working copy (e.g. `O:\HSlite`) is fine; keep this repo as the canonical source.
 
-## Other boxes (staging)
+## Other boxes (staging — different hardware)
+
+**SC Lite, HS Box, and SC Pro are not the same equipment.** Shared UI ideas ≠ same powerplan/firmware.
 
 | Path | What |
 |------|------|
-| [`sc-lite/HS_BOX_NOTES.md`](sc-lite/HS_BOX_NOTES.md) | **HS Box** powerplan dialect from a community report — **unconfirmed**. Reference parse/build only; **default Python helpers stay SC Lite** until we capture a live `manualPowerplan`. |
+| [`sc-lite/HS_BOX_NOTES.md`](sc-lite/HS_BOX_NOTES.md) | **HS Box** (separate product) — community-reported powerplan dialect, **unconfirmed**. Default helpers remain **SC Lite-only** until we capture a live HS Box `manualPowerplan`. |
 
 ## Findings so far (SC Lite fw 2.2.0)
 
