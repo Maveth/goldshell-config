@@ -22,7 +22,11 @@
   },
   "safety": {
     "abort_c": 88.0,
-    "restore_auto_on_exit": true
+    "restore_auto_on_exit": true,
+    "put_fail_restart_enabled": false,
+    "put_fail_restart_after_min": 5,
+    "put_fail_restart_cooldown_min": 15,
+    "put_fail_restart_wait_s": 120
   },
   "ui": {
     "interactive": true

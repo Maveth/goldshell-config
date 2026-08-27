@@ -136,4 +136,4 @@ Only disable with an abort watchdog (see `sclite_tempcontrol_test.py`). Do not l
 2. Keep `tempcontrol=true` unless actively watching.
 3. Abort well below firmware cutoff (~95 °C); we used ≥88–90 °C.
 4. After PUTs, re-check temps and `/dbg/minerinfo` voltage (manual mode can nudge reported mV).
-5. Avoid casually hitting `/mcb/facrst` (factory reset) or `/mcb/restart`.
+5. Avoid casually hitting `/mcb/facrst` (factory reset). Soft restart (`GET /mcb/restart`) is the recovery path when `PUT /mcb/setting` wedges (GET often still works). The temp manager can do this automatically if you set `safety.put_fail_restart_enabled=true` (default **off**; after N minutes of PUT failures, with a cooldown between restarts).
