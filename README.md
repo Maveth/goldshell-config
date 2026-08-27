@@ -24,7 +24,7 @@ Layout follows upstream: **one directory per product**. SC Lite / HS Box / SC Pr
 | Path | What |
 |------|------|
 | [`sc-lite/`](sc-lite/) | **SC Lite** — verified tools + fan/temp docs (fw 2.2.0) |
-| [`hs-box/`](hs-box/) | **HS Box** — staging notes only (**unconfirmed** powerplan dialect) |
+| [`hs-box/`](hs-box/) | **HS Box** — **fans confirmed** via API; capture checklist (no OC/UV); plan-string dialect still pending a pasted `manualPowerplan` |
 | [`sc5-pro/`](sc5-pro/) | **SC Pro / SC5 Pro** — placeholder (known harder; no helpers yet) |
 
 ## Findings so far (SC Lite fw 2.2.0)
