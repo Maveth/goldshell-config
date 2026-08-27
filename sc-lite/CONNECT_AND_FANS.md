@@ -6,90 +6,66 @@ No SSH. No custom firmware. Stock HTTP API only.
 ## 1. Reach the miner
 
 1. Put the miner on your LAN (DHCP is fine).
-2. Find its IP (router DHCP list, or the miner screen if present).
-3. Confirm these ports from your PC:
+2. Find its IP.
+3. Confirm ports from your PC:
 
 | Port | Expected | Use |
 |------|----------|-----|
 | **80** | Open | Web UI + control API (`/mcb`, `/user`, `/dbg`) |
-| **4028** | Open | Optional BFGMiner-style **read** API |
-| 22 / 23 / 2222 / 443 | Closed on our unit | No network shell / no HTTPS |
-
-Browser check:
-
-```text
-http://<MINER_IP>/
-http://<MINER_IP>/#/debug
-```
-
-Quick status (no login required on our fw):
+| **4028** | Open | Optional BFGMiner/intminer **read** API (no JWT) |
+| 22 / 23 / 2222 / 443 | Often closed | No network shell / no HTTPS on our unit |
 
 ```bash
 curl -s http://<MINER_IP>/mcb/status
-# {"hardware":"30.40.SA","model":"Goldshell-SCLITE","mcbversion":"MCB_V4_3","firmware":"2.2.0"}
+# {"hardware":"...","model":"Goldshell-SCLITE","firmware":"2.2.0",...}
 ```
 
-Optional live hashrate/temps without JWT (port 4028):
+Optional unauthenticated monitor:
 
 ```bash
 echo '{"command":"summary"}' | nc <MINER_IP> 4028
 echo '{"command":"devs"}'    | nc <MINER_IP> 4028
 ```
 
-`:4028` is great for monitoring. **Config writes need port 80 + JWT** (below).
+Config writes need **port 80 + JWT**.
 
 ## 2. Authenticate (JWT)
 
-Writes and most `/dbg/*` reads need a JWT.
+### Option A — browser token (bash scripts)
 
-### Option A — browser token (upstream bash scripts)
+1. Open `http://<MINER_IP>/#/debug` and unlock.
+2. DevTools → Console → `localStorage.getItem('token')`
+3. `export MINER_IP=...` and `export TOKEN=...`
 
-1. Open `http://<MINER_IP>/#/debug` and unlock with the miner password.
-2. DevTools → Console:
-
-```js
-localStorage.getItem('token')
-```
-
-3. Export it:
-
-```bash
-export MINER_IP='192.168.x.x'
-export TOKEN='eyJ…'
-```
-
-### Option B — auto-login (MaVeTh Python helpers)
-
-Login request:
+### Option B — auto-login (Python)
 
 ```http
 GET /user/login?username=admin&password=<hex>&cipher=true
 ```
 
-Password cipher (stock UI):
+Password cipher (stock UI module):
 
 - AES-CBC
-- key = `!!!!!!!!!!!!!!!!` (16 `!`)
+- key = `!!!!!!!!!!!!!!!!` (16 `!`) — **this is the cipher key, not the login password**
 - IV = 16 zero bytes
 - ZeroPadding
 - send ciphertext as **hex**
 
-Response JSON field: `"JWT Token"`.  
-Send it as header `Authorization: <token>` (raw token works).
+Response field: `"JWT Token"`. Header: `Authorization: <token>`.
 
-```powershell
-$env:SCLITE_IP='192.168.x.x'
-$env:SCLITE_PASSWORD='your-password'   # often factory 123456789 — change it
+Factory web password is often still `123456789` — **change it** on anything beyond a trusted LAN.
+
+```bash
 cd sc-lite/python
-pip install pycryptodome
+pip install -r requirements.txt
+export SCLITE_IP=192.168.x.x
+export SCLITE_PASSWORD='your-miner-password'
 python sclite_snapshot.py
 ```
 
-## 3. Understand the fan control knobs
+## 3. Fan knobs
 
-Fans are **not** controlled one-by-one over the stock API.
-
-All changes go through:
+All fan edits go through:
 
 ```http
 GET/PUT /mcb/setting
@@ -97,174 +73,67 @@ Authorization: <JWT>
 Content-Type: application/json
 ```
 
-Important fields:
-
-| Field | Meaning |
-|-------|---------|
-| `manualPowerplan` | String: `"625 MHz 9100 V 40 RPM 40 RPM PV 9400"` |
-| `manual` | Must be `true` for a custom plan to stick |
-| `tempcontrol` | `true` = auto `fanctrl` toward ~**85°C** |
-| `select` | Preset level (`0` stock) |
-
 Powerplan shape:
 
 ```text
 <MHz> MHz <mV> V <fanA> RPM <fanB> RPM PV <pv>
 ```
 
-Internal encoding (from `/dbg/minerhistory`):
+Example stock: `625 MHz 9100 V 40 RPM 40 RPM PV 9400`
 
-```text
-intchains_qomo:vfff=<pv>:<MHz>:<fanA>:<fanB>:<mV>
-```
+| Field | Notes |
+|-------|--------|
+| MHz / V | Clock / voltage (Mechanic reclock profiles) |
+| fanA / fanB | Shared fan **bias/kick** — not per-fan, not literal RPM |
+| PV | Leave alone unless you know what you’re doing |
+| `manual` | Must be `true` for a custom plan to stick |
+| `tempcontrol` | `true` = auto `fanctrl` toward ~**85 °C** |
 
-**The `RPM` numbers are not literal fan RPM.**  
-Live fans usually run ~1000–1800 RPM. Those fields are a **shared duty bias / kick** for all fans together.
+**You can** watch one board’s temp and kick **all** fans when it’s hot.  
+**You cannot** set `fan0` independently of `fan1/2/3` on stock API.
 
-You **can**:
-- watch a single board’s temperature
-- kick **all** fans when that board is hot
+With `tempcontrol=true`, a kick is a **pulse**: peak ~10–20s, clearly elevated ~1–3 minutes, then auto eases back.
 
-You **cannot** (stock API):
-- set `fan0` independently of `fan1/2/3`
-- set a permanent fixed RPM while `tempcontrol=true`
-
-## 4. Control fans (safe path)
-
-### Read current state
+## 4. Safe fan kick
 
 ```bash
-# Python helper
+python sclite_set_fan.py 70          # keep MHz/V/PV; set both RPM fields
 python sclite_snapshot.py
-
-# or raw
-curl -s -H "Authorization: $TOKEN" http://$MINER_IP/mcb/setting
-curl -s -H "Authorization: $TOKEN" "http://$MINER_IP/mcb/cgminer?cgminercmd=devs"
+python sclite_restore_auto.py        # manual=false, stock level-0 plan
 ```
 
-Watch board 0 (often hottest / CPB side) especially.
+Or bash: copy JWT, then use / adapt `miner-profile` (clock-oriented).
 
-### Kick fans up (keep clock/voltage)
+## 5. Temp manager (auto re-kick)
 
-Raise **only** the two RPM fields. Example: `40 → 70`.
+Because auto mode eases fans down, a watchdog can re-apply fan fields when hot.
 
-```bash
-python sclite_set_fan.py 70
-```
-
-What to expect with `tempcontrol=true` (normal):
-
-1. Fans spike within a few seconds (e.g. ~1000 → ~1700 RPM).
-2. Hot-board temp drops for a while.
-3. Auto `fanctrl` steps duty back down toward ~85°C.
-4. **Peak** lasts ~**10–20 seconds**.
-5. Clearly elevated for roughly **1–3 minutes**, then back near the normal band.
-
-So this is a **pulse / bias**, not “fans locked high.”
-
-### Restore stock auto profile
+| Mode | Role | `tempcontrol` |
+|------|------|----------------|
+| `single` | **Basic** — one threshold → one kick | Keep **ON** |
+| `steps` | **Advanced but safer** — temp ladder (highest match) | Keep **ON** |
+| `smooth` | Continuous weighted ramp (**experimental — not fully tested yet**) | Prefer **OFF** (stock fanctrl fights ramps). Fiddle `smooth.min_temp/max_temp/min_fan/max_fan`. Use abort + restore-on-exit. |
 
 ```bash
-python sclite_restore_auto.py
-# sets manual=false, level-0 plan, tempcontrol=true
-```
-
-### Optional: watch without writing
-
-```bash
-python sclite_watch.py --seconds 210 --every 30
-```
-
-### Automatic temp manager (recommended for unattended kicks)
-
-Because auto mode eases fans back down after ~1–3 minutes, use a small watchdog that **re-kicks** when the hot board climbs again.
-
-**Step-by-step run & test:** see [`python/README.md`](python/README.md#how-to-run-and-test) (setup → snapshot → manual kick → TUI → test ideas).
-
-Short version:
-
-```bash
-cd sc-lite/python
-pip install -r requirements.txt
-export SCLITE_IP='192.168.x.x'
-export SCLITE_PASSWORD='your-miner-password'
-
-python sclite_snapshot.py          # sanity check
 cp sclite_temp_manager.example.json sclite_temp_manager.json
 python sclite_temp_manager.py --config sclite_temp_manager.json
+python sclite_temp_manager.py --config sclite_temp_manager.steps.example.json
+python sclite_temp_manager.py --config sclite_temp_manager.smooth.example.json
 ```
 
-Defaults in the example config: kick to **70** when watched temp ≥ **80.5°C**, cooldown **45s**, abort ≥ **90°C**.
+Keys: `m` cycle mode · `[` `]` on_temp · `{` `}` kick_fan · `p` pause · `k` force · `r` restore · `s` save · `q` quit
 
-Interactive keys:
+See [`python/README.md`](python/README.md).
 
-| Key | Action |
-|-----|--------|
-| `[` / `]` | `on_temp` −0.5 / +0.5 °C |
-| `{` / `}` | `kick_fan` −5 / +5 |
-| `p` | pause / resume control |
-| `k` | force kick now (good first test) |
-| `r` | restore stock auto plan |
-| `s` | save current thresholds back to config |
-| `q` | quit |
+## 6. `tempcontrol` off (risky)
 
-Quick tests: press `k` to force a kick; or lower `on_temp` with `[` until it is under the live hot-board temp and wait one poll. Headless: `--no-ui --once`.## 5. `tempcontrol` off (advanced / risky)
+`tempcontrol` boolean is writable; **`target_temp` (85) is not**.  
+Only disable with an abort watchdog (see `sclite_tempcontrol_test.py`). Do not leave it off unattended.
 
-`tempcontrol` **is** exposed on the API (boolean).  
-`target_temp` (**85°C**) is **not** editable via `/mcb/setting`.
+## 7. Safety
 
-Turning `tempcontrol` off can keep a kick more effective for a short window, but you lose the auto thermal ramp. **Do not leave it off unattended.**
-
-Use the abort-safe helper:
-
-```bash
-python sclite_tempcontrol_test.py --fan 70 --abort-c 88 --max-seconds 90 --poll 3
-```
-
-That script:
-
-- refuses to start if already ≥ abort temp
-- sets `tempcontrol=false` + fan kick
-- polls every few seconds
-- **forces `tempcontrol=true` again** on abort, timeout, Ctrl+C, or error
-
-Our 90s lab run peaked ~83.4°C and restored cleanly. Still treat this as hazardous.
-
-## 6. Safety checklist
-
-1. Prefer fan-only edits (leave MHz / V / PV alone) while learning.
-2. Keep `tempcontrol=true` unless you are actively watching.
-3. Abort well below firmware cutoff (~95°C). We used **≥88°C**.
-4. After any `PUT`, re-check temps **and** `/dbg/minerinfo` voltage (manual mode can nudge reported mV).
-5. Do **not** casually hit `/mcb/facrst` (factory reset) or `/mcb/restart`.
-6. Change the default web password if the miner is reachable outside a trusted LAN.
-
-## 7. Minimal raw HTTP example (fan kick)
-
-Pseudo-flow:
-
-```text
-1) GET /user/login?username=admin&password=<aes-hex>&cipher=true
-   -> JWT Token
-
-2) GET /mcb/setting
-   -> copy JSON
-
-3) modify:
-   manual = true
-   manualPowerplan = "<same MHz/V/PV> but higher fanA/fanB"
-   (leave tempcontrol true unless you accept the risk)
-
-4) PUT /mcb/setting  with full JSON body
-
-5) GET /mcb/cgminer?cgminercmd=devs
-   -> confirm fans/temps moved
-```
-
-Working wrappers: `sc-lite/python/sclite_set_fan.py` and friends.
-
-## See also
-
-- [README.md](README.md) — full API map and dbg endpoints
-- [../README.md](../README.md) — fork findings summary
-- Upstream bash reclock tools: `miner-profile`, `miner-health`, `miner-runtime`
+1. Prefer fan-only edits while learning (leave MHz / V / PV).
+2. Keep `tempcontrol=true` unless actively watching.
+3. Abort well below firmware cutoff (~95 °C); we used ≥88–90 °C.
+4. After PUTs, re-check temps and `/dbg/minerinfo` voltage (manual mode can nudge reported mV).
+5. Avoid casually hitting `/mcb/facrst` (factory reset) or `/mcb/restart`.

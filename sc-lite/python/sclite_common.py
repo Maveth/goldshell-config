@@ -12,9 +12,10 @@ from typing import Any
 
 from Crypto.Cipher import AES
 
-DEFAULT_IP = os.environ.get("SCLITE_IP", "192.168.0.202")
-DEFAULT_PASSWORD = os.environ.get("SCLITE_PASSWORD", "123456789")
-KEY = b"!" * 16  # Utf8.parse("!!!!!!!!!!!!!!!!")
+# Prefer env SCLITE_IP / SCLITE_PASSWORD (or temp-manager JSON). No lab IP baked in.
+DEFAULT_IP = os.environ.get("SCLITE_IP", "")
+DEFAULT_PASSWORD = os.environ.get("SCLITE_PASSWORD", "")
+KEY = b"!" * 16  # CryptoJS Utf8.parse("!!!!!!!!!!!!!!!!") — cipher key, not login password
 IV = b"\0" * 16
 
 _token: str | None = None
@@ -32,6 +33,11 @@ def configure(ip: str | None = None, password: str | None = None) -> None:
 
 def host() -> str:
     ip = os.environ.get("SCLITE_IP", DEFAULT_IP)
+    if not ip:
+        raise RuntimeError(
+            "SCLITE_IP is not set. export SCLITE_IP=192.168.x.x "
+            "(or set miner.ip in the temp-manager JSON)"
+        )
     if ip.startswith("http://") or ip.startswith("https://"):
         return ip.rstrip("/")
     return f"http://{ip}"
@@ -48,7 +54,13 @@ def encrypt_password(password: str) -> str:
 
 def login(password: str | None = None) -> str:
     global _token
-    pw = encrypt_password(password or os.environ.get("SCLITE_PASSWORD", DEFAULT_PASSWORD))
+    plain = password if password is not None else os.environ.get("SCLITE_PASSWORD", DEFAULT_PASSWORD)
+    if not plain:
+        raise RuntimeError(
+            "SCLITE_PASSWORD is not set. export SCLITE_PASSWORD=... "
+            "(or set miner.password in the temp-manager JSON)"
+        )
+    pw = encrypt_password(plain)
     qs = urllib.parse.urlencode(
         {"username": "admin", "password": pw, "cipher": "true"}
     )
@@ -111,36 +123,18 @@ def put_setting(payload: dict) -> None:
     api("PUT", "/mcb/setting", payload)
 
 
-def parse_plan(plan: str) -> tuple[str, str, int, int, str | None]:
-    """Parse manualPowerplan from SC Lite or HS Box.
-
-    SC Lite example:  ``625 MHz 9100 V 40 RPM 40 RPM PV 9400``
-    HS Box example:   ``850 MHz 0.440 V 50 RPM 50 RPM`` (PV optional)
-
-    MHz/V are kept as strings so float HS Box volts (and formatting) round-trip.
-    """
+def parse_plan(plan: str) -> tuple[int, int, int, int, int]:
     m = re.match(
-        r"([\d.]+)\s*MHz\s+([\d.]+)\s*V\s+(\d+)\s*RPM\s+(\d+)\s*RPM(?:\s+PV\s+([\d.]+))?",
+        r"(\d+)\s*MHz\s+(\d+)\s*V\s+(\d+)\s*RPM\s+(\d+)\s*RPM\s+PV\s+(\d+)",
         plan or "",
     )
     if not m:
         raise RuntimeError(f"cannot parse powerplan: {plan!r}")
-    mhz, mv, fan_a, fan_b, pv = m.groups()
-    return mhz, mv, int(fan_a), int(fan_b), pv
+    return tuple(map(int, m.groups()))  # type: ignore[return-value]
 
 
-def build_plan(
-    mhz: str | int | float,
-    mv: str | int | float,
-    fan_a: int,
-    fan_b: int,
-    pv: str | int | float | None = None,
-) -> str:
-    """Build powerplan; omit PV when None (HS Box often has no PV token)."""
-    plan = f"{mhz} MHz {mv} V {fan_a} RPM {fan_b} RPM"
-    if pv is not None and str(pv) != "":
-        plan += f" PV {pv}"
-    return plan
+def build_plan(mhz: int, mv: int, fan_a: int, fan_b: int, pv: int) -> str:
+    return f"{mhz} MHz {mv} V {fan_a} RPM {fan_b} RPM PV {pv}"
 
 
 def parse_temp(val: Any) -> float | None:
