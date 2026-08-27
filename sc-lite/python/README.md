@@ -1,13 +1,15 @@
-# MaVeTh SC Lite Python helpers
+# MaVeTh Goldshell Python helpers (SC Lite + HS Box)
 
-Auto-login JWT tools for firmware 2.2.0.
+Auto-login JWT tools for Goldshell fw **2.2.0**-class UI (`/mcb`, `/dbg`).
 
 Full walkthrough (ports, auth, fan kicks, safety):  
 [`../CONNECT_AND_FANS.md`](../CONNECT_AND_FANS.md)
 
-These scripts are **not** BIP-110-specific — they only talk to the miner over LAN HTTP.  
-Keep them in this repo (or a local working copy such as `O:\HSlite`); your BIP-110 / DATUM tree can stay separate.
+**Powerplan parsing** supports both:
+- **SC Lite:** `625 MHz 9100 V 40 RPM 40 RPM PV 9400`
+- **HS Box:** `850 MHz 0.440 V 50 RPM 50 RPM` (float volts; **PV optional**)
 
+These scripts are **not** BIP-110-specific — they only talk to the miner over LAN HTTP.
 ## How to run and test
 
 ### 1. One-time setup
