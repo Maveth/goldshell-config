@@ -20,7 +20,7 @@ The SC5-Pro has been more annoying/sensitive. If you make progress on any Blake2
 
 | Path | What |
 |------|------|
-| [\sc-lite/HS_BOX_NOTES.md\](sc-lite/HS_BOX_NOTES.md) | HS Box dialect (**unconfirmed**) — not in default helpers yet |
+| [\sc-lite/HS_BOX_NOTES.md\](sc-lite/HS_BOX_NOTES.md) | **HS Box** (different hardware from SC Lite/Pro) — unconfirmed dialect; not in default helpers |
 
 ### Fan control (verified)
 

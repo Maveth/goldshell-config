@@ -1,11 +1,16 @@
-# Goldshell HS Box notes (separate from SC Lite)
+# Goldshell HS Box notes (different hardware)
 
 **Status: UNCONFIRMED community report — not wired into the default Python helpers yet.**
 
-SC Lite (fw 2.2.0) is what we verified and what `sc-lite/python/` targets by default.
+**HS Box ≠ SC Lite ≠ SC Pro.** These are different Goldshell products (different boards/firmware lineages), even if they share a similar Yotta-style web UI and Blake2b-class hashing. Do not assume SC Lite timings, powerplan tokens, ports, or dbg layout apply unchanged.
 
-Someone reported the same tools working on a **Goldshell HS Box** after changing only powerplan parse/build. We have **not** validated a live HS Box `manualPowerplan` string ourselves. Keep this file as a staging ground until confirmed.
+| Model | Role in this repo |
+|-------|-------------------|
+| **SC Lite** | Verified target of `sc-lite/` helpers (fw 2.2.0 lab unit) |
+| **HS Box** | Separate machine — community tip only so far |
+| **SC Pro / SC5 Pro** | Separate again — upstream notes it as harder/more sensitive |
 
+Someone reported that **after adapting powerplan parse/build**, fan-style tools worked on an **HS Box**. We have **not** validated a live HS Box `manualPowerplan` ourselves. This file stages that tip until confirmed on real hardware.
 ## Reported powerplan dialect
 
 | | SC Lite (confirmed) | HS Box (reported, unconfirmed) |
