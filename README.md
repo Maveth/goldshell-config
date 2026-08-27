@@ -17,13 +17,15 @@ Covers ports, JWT login (browser or auto AES), powerplan fan kicks, how long fan
 
 These helpers only talk to the miner over LAN — they are not tied to a BIP-110 checkout. A local working copy (e.g. `O:\HSlite`) is fine; keep this repo as the canonical source.
 
-## Other boxes (staging — different hardware)
+## Models (siblings — different hardware)
 
-**SC Lite, HS Box, and SC Pro are not the same equipment.** Shared UI ideas ≠ same powerplan/firmware.
+Layout follows upstream: **one directory per product**. SC Lite / HS Box / SC Pro are not the same equipment.
 
 | Path | What |
 |------|------|
-| [`sc-lite/HS_BOX_NOTES.md`](sc-lite/HS_BOX_NOTES.md) | **HS Box** (separate product) — community-reported powerplan dialect, **unconfirmed**. Default helpers remain **SC Lite-only** until we capture a live HS Box `manualPowerplan`. |
+| [`sc-lite/`](sc-lite/) | **SC Lite** — verified tools + fan/temp docs (fw 2.2.0) |
+| [`hs-box/`](hs-box/) | **HS Box** — staging notes only (**unconfirmed** powerplan dialect) |
+| [`sc5-pro/`](sc5-pro/) | **SC Pro / SC5 Pro** — placeholder (known harder; no helpers yet) |
 
 ## Findings so far (SC Lite fw 2.2.0)
 
