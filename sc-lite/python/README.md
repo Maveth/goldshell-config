@@ -82,6 +82,30 @@ python sclite_temp_manager.py --config sclite_temp_manager.json --mode smooth
 - Abort **90°C** by default
 - Don’t leave `tempcontrol` off tests unattended
 
+### Optional: auto soft-restart if PUT wedges
+
+After many `PUT /mcb/setting` applies, the SC Lite API can stop accepting PUTs
+(while `GET` still works). Soft restart (`GET /mcb/restart`) usually clears it.
+
+**Default is OFF.** To enable in config:
+
+```json
+"safety": {
+  "put_fail_restart_enabled": true,
+  "put_fail_restart_after_min": 5,
+  "put_fail_restart_cooldown_min": 15,
+  "put_fail_restart_wait_s": 120
+}
+```
+
+Or CLI:
+
+```powershell
+python sclite_temp_manager.py --config sclite_temp_manager.json --put-fail-restart --put-fail-restart-after-min 5
+```
+
+Never uses `/mcb/facrst`. Accepts unattended reboots when enabled.
+
 ---
 
 ## Command cheat sheet
@@ -99,4 +123,4 @@ python sclite_temp_manager.py --config sclite_temp_manager.smooth.example.json
 python sclite_tempcontrol_test.py --fan 70 --abort-c 88 --max-seconds 90
 ```
 
-CLI: `--mode single|steps|smooth`, `--on-temp`, `--kick-fan`, `--cooldown`, `--poll`, `--abort-c`, `--board`, `--no-ui`, `--once`.
+CLI: `--mode single|steps|smooth`, `--on-temp`, `--kick-fan`, `--cooldown`, `--poll`, `--abort-c`, `--board`, `--put-fail-restart`, `--put-fail-restart-after-min`, `--no-ui`, `--once`.

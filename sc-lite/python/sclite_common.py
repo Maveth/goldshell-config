@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -121,6 +122,48 @@ def get_setting() -> dict:
 
 def put_setting(payload: dict) -> None:
     api("PUT", "/mcb/setting", payload)
+
+
+def soft_restart(timeout: float = 8.0) -> str:
+    """Request soft restart via GET /mcb/restart.
+
+    Often drops the TCP connection immediately when reboot starts.
+    Returns a short status string. Does NOT call /mcb/facrst.
+    """
+    global _token
+    if _token is None:
+        login()
+    assert _token is not None
+    req = urllib.request.Request(
+        host() + "/mcb/restart",
+        headers={"Authorization": _token, "Accept": "*/*"},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            _ = r.read()
+            return f"restart HTTP {getattr(r, 'status', 200)}"
+    except Exception as e:
+        # Connection drop mid-restart is common/expected
+        msg = str(e).lower()
+        if "closed" in msg or "reset" in msg or "timed out" in msg or "timeout" in msg:
+            return f"restart requested ({e.__class__.__name__})"
+        raise
+
+
+def wait_until_up(timeout_s: float = 120.0, poll_s: float = 5.0) -> bool:
+    """Re-login + GET setting until success or timeout."""
+    global _token
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        try:
+            _token = None
+            login()
+            get_setting()
+            return True
+        except Exception:
+            time.sleep(poll_s)
+    return False
 
 
 def parse_plan(plan: str) -> tuple[int, int, int, int, int]:

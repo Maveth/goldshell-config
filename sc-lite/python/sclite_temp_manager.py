@@ -66,6 +66,13 @@ DEFAULTS = {
     "safety": {
         "abort_c": 90.0,
         "restore_auto_on_exit": False,
+        # Opt-in: if PUT /mcb/setting keeps failing (GET often still works),
+        # soft-restart via GET /mcb/restart after N minutes of sustained failure.
+        # Default OFF — enable only when you accept unattended reboots.
+        "put_fail_restart_enabled": False,
+        "put_fail_restart_after_min": 5.0,
+        "put_fail_restart_cooldown_min": 15.0,
+        "put_fail_restart_wait_s": 120.0,
     },
     "ui": {"interactive": True},
 }
@@ -101,6 +108,10 @@ class Settings:
     smooth_apply_interval_s: float = 5.0
     abort_c: float = 90.0
     restore_auto_on_exit: bool = False
+    put_fail_restart_enabled: bool = False
+    put_fail_restart_after_min: float = 5.0
+    put_fail_restart_cooldown_min: float = 15.0
+    put_fail_restart_wait_s: float = 120.0
     interactive: bool = True
     paused: bool = False
     last_kick_ts: float = 0.0
@@ -109,6 +120,10 @@ class Settings:
     last_status: str = "boot"
     messages: list[str] = field(default_factory=list)
     fan_history: deque[float] = field(default_factory=deque)
+    # Runtime: first PUT failure in current streak; last soft-restart time
+    put_fail_since: float | None = None
+    last_restart_ts: float = 0.0
+    restart_count: int = 0
 
     def note(self, msg: str) -> None:
         ts = time.strftime("%H:%M:%S")
@@ -162,6 +177,12 @@ def settings_from_config(cfg: dict) -> Settings:
         smooth_apply_interval_s=float(sm.get("apply_interval_s", 5)),
         abort_c=float(s["abort_c"]),
         restore_auto_on_exit=bool(s.get("restore_auto_on_exit", False)),
+        put_fail_restart_enabled=bool(s.get("put_fail_restart_enabled", False)),
+        put_fail_restart_after_min=float(s.get("put_fail_restart_after_min", 5.0)),
+        put_fail_restart_cooldown_min=float(
+            s.get("put_fail_restart_cooldown_min", 15.0)
+        ),
+        put_fail_restart_wait_s=float(s.get("put_fail_restart_wait_s", 120.0)),
         interactive=bool(u.get("interactive", True)),
         fan_history=deque(maxlen=hist_len),
     )
@@ -240,11 +261,81 @@ def apply_fan(st: Settings, fan: int, why: str) -> None:
     # Explicit: smooth usually wants tc OFF; single/steps usually ON.
     payload["tempcontrol"] = bool(st.force_tempcontrol_on)
     sc.put_setting(payload)
+    st.put_fail_since = None  # PUT worked again
     st.last_kick_ts = time.time()
     st.last_applied_fan = fan
     st.kick_count += 1
     st.last_status = f"{why} fan={fan}"
     st.note(f"#{st.kick_count} {why} -> {new_plan}")
+
+
+def mark_put_fail(st: Settings, err: Exception | BaseException) -> None:
+    if st.put_fail_since is None:
+        st.put_fail_since = time.time()
+    st.note(f"apply failed: {err}")
+    st.last_status = f"ERROR {err}"
+
+
+def maybe_auto_restart(st: Settings) -> bool:
+    """If PUT has failed long enough, soft-restart the miner (opt-in).
+
+    Returns True if a restart was attempted (caller should skip normal render
+    / treat this poll as recovery). Uses GET /mcb/restart — works even when
+    PUT is wedged. Never calls /mcb/facrst.
+    """
+    if not st.put_fail_restart_enabled:
+        return False
+    if st.put_fail_since is None:
+        return False
+    elapsed_min = (time.time() - st.put_fail_since) / 60.0
+    if elapsed_min < st.put_fail_restart_after_min:
+        return False
+    if st.last_restart_ts > 0:
+        since_restart = (time.time() - st.last_restart_ts) / 60.0
+        if since_restart < st.put_fail_restart_cooldown_min:
+            left = st.put_fail_restart_cooldown_min - since_restart
+            st.last_status = f"PUT_FAIL restart_cd {left:.0f}m"
+            return False
+
+    st.note(
+        f"PUT failed for {elapsed_min:.1f}m — soft restart "
+        f"(after_min={st.put_fail_restart_after_min:g})"
+    )
+    st.last_status = "SOFT_RESTART"
+    print(
+        f"\n[{time.strftime('%H:%M:%S')}] PUT wedged ~{elapsed_min:.1f}m — "
+        f"soft restart via GET /mcb/restart …",
+        flush=True,
+    )
+    try:
+        msg = sc.soft_restart()
+        st.note(msg)
+        print(f"  {msg}", flush=True)
+    except Exception as e:
+        st.note(f"soft_restart failed: {e}")
+        st.last_status = f"RESTART_FAIL {e}"
+        st.last_restart_ts = time.time()  # backoff even on failure
+        print(f"  soft_restart failed: {e}", flush=True)
+        return True
+
+    st.last_restart_ts = time.time()
+    st.restart_count += 1
+    print(
+        f"  waiting up to {st.put_fail_restart_wait_s:.0f}s for miner …",
+        flush=True,
+    )
+    ok = sc.wait_until_up(timeout_s=st.put_fail_restart_wait_s)
+    if ok:
+        st.note(f"miner up after soft restart #{st.restart_count}")
+        st.put_fail_since = None
+        st.last_applied_fan = None  # force re-apply after reboot
+        st.last_status = "RESTARTED_OK"
+        print("  miner back up — will re-apply fans next cycle", flush=True)
+    else:
+        st.note("miner did not come back in time after soft restart")
+        st.last_status = "RESTART_TIMEOUT"
+        print("  miner did not come back in time", flush=True)
+    return True
 
 
 def restore_auto() -> None:
@@ -326,6 +417,16 @@ def render(
         f"desired={desired if desired is not None else '-'}  "
         f"last={st.last_applied_fan if st.last_applied_fan is not None else '-'}"
     )
+    if st.put_fail_restart_enabled:
+        fail_s = ""
+        if st.put_fail_since is not None:
+            fail_m = (time.time() - st.put_fail_since) / 60.0
+            fail_s = f"  put_fail={fail_m:.1f}m/{st.put_fail_restart_after_min:g}m"
+        print(
+            f"put_fail_restart=ON after {st.put_fail_restart_after_min:g}m  "
+            f"cooldown={st.put_fail_restart_cooldown_min:g}m  "
+            f"restarts={st.restart_count}{fail_s}"
+        )
     print("-" * 72)
     print(f"{'BOARD':<6} {'TEMP':>8} {'FANS':<40} {'TH/s':>8}")
     for b in boards.get("boards") or []:
@@ -368,6 +469,13 @@ def save_runtime_config(path: Path, cfg: dict, st: Settings) -> None:
         "apply_interval_s": st.smooth_apply_interval_s,
     }
     out["safety"]["abort_c"] = st.abort_c
+    out["safety"]["restore_auto_on_exit"] = st.restore_auto_on_exit
+    out["safety"]["put_fail_restart_enabled"] = st.put_fail_restart_enabled
+    out["safety"]["put_fail_restart_after_min"] = st.put_fail_restart_after_min
+    out["safety"]["put_fail_restart_cooldown_min"] = (
+        st.put_fail_restart_cooldown_min
+    )
+    out["safety"]["put_fail_restart_wait_s"] = st.put_fail_restart_wait_s
     path.write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
     st.note(f"saved {path}")
 
@@ -402,15 +510,18 @@ def handle_key(ch: str, st: Settings, cfg: dict, cfg_path: Path | None) -> str |
                 fan = st.steps[-1][1]
             apply_fan(st, fan, "FORCE")
         except Exception as e:
-            st.note(f"kick failed: {e}")
+            mark_put_fail(st, e)
+            maybe_auto_restart(st)
     elif ch in ("r", "R"):
         try:
             restore_auto()
+            st.put_fail_since = None
             st.note("restored auto/stock plan")
             st.last_status = "RESTORED_AUTO"
             st.last_applied_fan = None
         except Exception as e:
-            st.note(f"restore failed: {e}")
+            mark_put_fail(st, e)
+            maybe_auto_restart(st)
     elif ch in ("s", "S"):
         dest = cfg_path or Path("sclite_temp_manager.runtime.json")
         try:
@@ -421,8 +532,26 @@ def handle_key(ch: str, st: Settings, cfg: dict, cfg_path: Path | None) -> str |
 
 
 def control_step(st: Settings) -> str:
-    setting = sc.get_setting()
-    boards = sc.board_snapshot()
+    try:
+        setting = sc.get_setting()
+        boards = sc.board_snapshot()
+    except Exception as e:
+        # Miner may be mid-reboot after soft restart, or briefly unreachable.
+        st.last_status = f"API_DOWN {e}"
+        st.note(st.last_status)
+        if st.put_fail_since is None:
+            # Treat total API loss like a PUT wedge for restart purposes only
+            # if we already had PUT problems; otherwise just wait.
+            pass
+        if st.put_fail_since is not None and maybe_auto_restart(st):
+            return "restarted"
+        if not st.interactive:
+            print(
+                f"t={time.strftime('%H:%M:%S')} status={st.last_status}",
+                flush=True,
+            )
+        return "ok"
+
     watched, row = watched_temp(boards, st.board)
     desired: int | None = None
     if watched is not None:
@@ -434,7 +563,8 @@ def control_step(st: Settings) -> str:
         try:
             apply_fan(st, max(st.kick_fan, st.smooth_max_fan, 80), "ABORT")
         except Exception as e:
-            st.note(f"abort kick failed: {e}")
+            mark_put_fail(st, e)
+            maybe_auto_restart(st)
         if st.interactive:
             render(st, setting, boards, watched, row, desired)
         else:
@@ -471,8 +601,9 @@ def control_step(st: Settings) -> str:
                     why = f"{why}_REPULSE"
                 apply_fan(st, desired, why)
             except Exception as e:
-                st.note(f"apply failed: {e}")
-                st.last_status = f"ERROR {e}"
+                mark_put_fail(st, e)
+                if maybe_auto_restart(st):
+                    return "restarted"
     elif in_cooldown:
         st.last_status = "COOLDOWN"
     elif desired is None:
@@ -484,6 +615,11 @@ def control_step(st: Settings) -> str:
             st.last_applied_fan = None
     else:
         st.last_status = "IDLE"
+
+    # Timer-based restart even if we are not applying this cycle
+    # (e.g. still in ERROR streak / waiting for threshold).
+    if st.put_fail_since is not None and maybe_auto_restart(st):
+        return "restarted"
 
     try:
         setting = sc.get_setting()
@@ -521,6 +657,17 @@ def main() -> None:
     ap.add_argument("--poll", type=float, default=None)
     ap.add_argument("--abort-c", type=float, default=None)
     ap.add_argument("--board", default=None)
+    ap.add_argument(
+        "--put-fail-restart",
+        action="store_true",
+        help="enable soft restart after sustained PUT failures (default off)",
+    )
+    ap.add_argument(
+        "--put-fail-restart-after-min",
+        type=float,
+        default=None,
+        help="minutes of PUT failure before soft restart (default 5)",
+    )
     ap.add_argument("--no-ui", action="store_true")
     ap.add_argument("--once", action="store_true")
     args = ap.parse_args()
@@ -549,6 +696,11 @@ def main() -> None:
         st.abort_c = args.abort_c
     if args.board is not None:
         st.board = args.board if args.board == "max" else int(args.board)
+    if args.put_fail_restart:
+        st.put_fail_restart_enabled = True
+    if args.put_fail_restart_after_min is not None:
+        st.put_fail_restart_after_min = args.put_fail_restart_after_min
+        st.put_fail_restart_enabled = True  # implying enable when threshold set
     if args.no_ui:
         st.interactive = False
 
@@ -566,6 +718,13 @@ def main() -> None:
         f"connecting {sc.host()} mode={st.mode} abort={st.abort_c} "
         f"poll={st.poll_s}s"
     )
+    if st.put_fail_restart_enabled:
+        print(
+            f"put_fail_restart=ON after {st.put_fail_restart_after_min:g}m "
+            f"(cooldown {st.put_fail_restart_cooldown_min:g}m, "
+            f"wait {st.put_fail_restart_wait_s:g}s) — GET /mcb/restart only",
+            flush=True,
+        )
     if st.mode == "smooth" and st.force_tempcontrol_on:
         print(
             "NOTE: smooth mode works best with tempcontrol OFF "
