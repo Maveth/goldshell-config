@@ -5,7 +5,7 @@
   },
   "control": {
     "mode": "steps",
-    "cooldown_s": 52,
+    "cooldown_s": 120,
     "poll_s": 4.0,
     "board": "max",
     "force_tempcontrol_on": true,
@@ -17,9 +17,15 @@
   },
   "safety": {
     "abort_c": 90.0,
-    "restore_auto_on_exit": false
+    "restore_auto_on_exit": false,
+    "put_fail_restart_enabled": false,
+    "put_fail_restart_after_min": 5,
+    "put_fail_restart_cooldown_min": 15,
+    "put_fail_restart_wait_s": 120
   },
   "ui": {
-    "interactive": true
+    "interactive": true,
+    "log_file": "sclite_temp_manager.log",
+    "log_level": "INFO"
   }
 }

@@ -82,6 +82,49 @@ python sclite_temp_manager.py --config sclite_temp_manager.json --mode smooth
 - Abort **90°C** by default
 - Don’t leave `tempcontrol` off tests unattended
 
+### Logging (errors used to vanish)
+
+The interactive UI clears the screen each poll, so crashes looked like a silent stop.
+By default the temp manager now appends to **`sclite_temp_manager.log`** (next to your
+config). Warnings/errors also go to **stderr**. The UI shows `LAST ERROR:` when set.
+
+```powershell
+# default log beside config:
+python sclite_temp_manager.py --config sclite_temp_manager.json
+Get-Content .\sclite_temp_manager.log -Tail 40
+
+# custom path / disable:
+python sclite_temp_manager.py --config sclite_temp_manager.json --log-file O:\logs\fans.log
+python sclite_temp_manager.py --config sclite_temp_manager.json --log-file off
+```
+
+Uncaught step errors are logged with a full traceback; the loop **keeps running**
+(unless `--max-step-errors` is hit, default 50 consecutive).
+
+### Optional: auto soft-restart if PUT wedges
+
+After many `PUT /mcb/setting` applies, the SC Lite API can stop accepting PUTs
+(while `GET` still works). Soft restart (`GET /mcb/restart`) usually clears it.
+
+**Default is OFF.** To enable in config:
+
+```json
+"safety": {
+  "put_fail_restart_enabled": true,
+  "put_fail_restart_after_min": 5,
+  "put_fail_restart_cooldown_min": 15,
+  "put_fail_restart_wait_s": 120
+}
+```
+
+Or CLI:
+
+```powershell
+python sclite_temp_manager.py --config sclite_temp_manager.json --put-fail-restart --put-fail-restart-after-min 5
+```
+
+Never uses `/mcb/facrst`. Accepts unattended reboots when enabled.
+
 ---
 
 ## Command cheat sheet
@@ -99,4 +142,4 @@ python sclite_temp_manager.py --config sclite_temp_manager.smooth.example.json
 python sclite_tempcontrol_test.py --fan 70 --abort-c 88 --max-seconds 90
 ```
 
-CLI: `--mode single|steps|smooth`, `--on-temp`, `--kick-fan`, `--cooldown`, `--poll`, `--abort-c`, `--board`, `--no-ui`, `--once`.
+CLI: `--mode single|steps|smooth`, `--on-temp`, `--kick-fan`, `--cooldown`, `--poll`, `--abort-c`, `--board`, `--put-fail-restart`, `--put-fail-restart-after-min`, `--no-ui`, `--once`.

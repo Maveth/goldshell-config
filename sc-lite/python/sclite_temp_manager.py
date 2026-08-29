@@ -19,9 +19,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import sys
 import time
+import traceback
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -34,6 +36,7 @@ try:
 except ImportError:
     msvcrt = None  # type: ignore
 
+LOG = logging.getLogger("sclite_temp_manager")
 
 DEFAULTS = {
     "miner": {"ip": "", "password": ""},
@@ -66,9 +69,67 @@ DEFAULTS = {
     "safety": {
         "abort_c": 90.0,
         "restore_auto_on_exit": False,
+        # Opt-in: if PUT /mcb/setting keeps failing (GET often still works),
+        # soft-restart via GET /mcb/restart after N minutes of sustained failure.
+        # Default OFF — enable only when you accept unattended reboots.
+        "put_fail_restart_enabled": False,
+        "put_fail_restart_after_min": 5.0,
+        "put_fail_restart_cooldown_min": 15.0,
+        "put_fail_restart_wait_s": 120.0,
     },
-    "ui": {"interactive": True},
+    "ui": {
+        "interactive": True,
+        # Append log so interactive screen clears don't hide crashes.
+        # Relative paths are next to the config file (or cwd if no config).
+        "log_file": "sclite_temp_manager.log",
+        "log_level": "INFO",
+    },
 }
+
+
+def setup_logging(log_file: Path | None, level_name: str = "INFO") -> Path | None:
+    """Configure root-ish logger: always stderr for WARNING+, optional file."""
+    level = getattr(logging, str(level_name).upper(), logging.INFO)
+    LOG.handlers.clear()
+    LOG.setLevel(level)
+    LOG.propagate = False
+
+    fmt = logging.Formatter(
+        "%(asctime)s %(levelname)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+    )
+
+    err = logging.StreamHandler(sys.stderr)
+    err.setLevel(logging.WARNING)
+    err.setFormatter(fmt)
+    LOG.addHandler(err)
+
+    if log_file is None:
+        return None
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    fh = logging.FileHandler(log_file, encoding="utf-8")
+    fh.setLevel(level)
+    fh.setFormatter(fmt)
+    LOG.addHandler(fh)
+    LOG.info("logging to %s", log_file.resolve())
+    return log_file
+
+
+def resolve_log_path(cfg: dict, cfg_path: Path | None, cli_log: str | None) -> Path | None:
+    if cli_log is not None:
+        if cli_log.strip().lower() in ("", "none", "off", "false", "-"):
+            return None
+        return Path(cli_log)
+    ui = cfg.get("ui") or {}
+    raw = ui.get("log_file", "sclite_temp_manager.log")
+    if raw is False or raw is None:
+        return None
+    if isinstance(raw, str) and raw.strip().lower() in ("", "none", "off", "false"):
+        return None
+    p = Path(str(raw))
+    if not p.is_absolute():
+        base = cfg_path.parent if cfg_path is not None else Path.cwd()
+        p = base / p
+    return p
 
 
 def deep_merge(base: dict, overlay: dict) -> dict:
@@ -101,19 +162,31 @@ class Settings:
     smooth_apply_interval_s: float = 5.0
     abort_c: float = 90.0
     restore_auto_on_exit: bool = False
+    put_fail_restart_enabled: bool = False
+    put_fail_restart_after_min: float = 5.0
+    put_fail_restart_cooldown_min: float = 15.0
+    put_fail_restart_wait_s: float = 120.0
     interactive: bool = True
+    log_file: str | None = "sclite_temp_manager.log"
     paused: bool = False
     last_kick_ts: float = 0.0
     last_applied_fan: int | None = None
     kick_count: int = 0
     last_status: str = "boot"
+    last_error: str = ""
     messages: list[str] = field(default_factory=list)
     fan_history: deque[float] = field(default_factory=deque)
+    # Runtime: first PUT failure in current streak; last soft-restart time
+    put_fail_since: float | None = None
+    last_restart_ts: float = 0.0
+    restart_count: int = 0
+    step_error_count: int = 0
 
-    def note(self, msg: str) -> None:
+    def note(self, msg: str, level: int = logging.INFO) -> None:
         ts = time.strftime("%H:%M:%S")
         self.messages.append(f"[{ts}] {msg}")
-        self.messages = self.messages[-8:]
+        self.messages = self.messages[-12:]
+        LOG.log(level, msg)
 
 
 def load_config(path: Path | None) -> dict:
@@ -162,7 +235,18 @@ def settings_from_config(cfg: dict) -> Settings:
         smooth_apply_interval_s=float(sm.get("apply_interval_s", 5)),
         abort_c=float(s["abort_c"]),
         restore_auto_on_exit=bool(s.get("restore_auto_on_exit", False)),
+        put_fail_restart_enabled=bool(s.get("put_fail_restart_enabled", False)),
+        put_fail_restart_after_min=float(s.get("put_fail_restart_after_min", 5.0)),
+        put_fail_restart_cooldown_min=float(
+            s.get("put_fail_restart_cooldown_min", 15.0)
+        ),
+        put_fail_restart_wait_s=float(s.get("put_fail_restart_wait_s", 120.0)),
         interactive=bool(u.get("interactive", True)),
+        log_file=(
+            None
+            if u.get("log_file") in (False, None)
+            else str(u.get("log_file", "sclite_temp_manager.log"))
+        ),
         fan_history=deque(maxlen=hist_len),
     )
     return st
@@ -240,11 +324,84 @@ def apply_fan(st: Settings, fan: int, why: str) -> None:
     # Explicit: smooth usually wants tc OFF; single/steps usually ON.
     payload["tempcontrol"] = bool(st.force_tempcontrol_on)
     sc.put_setting(payload)
+    st.put_fail_since = None  # PUT worked again
+    st.last_error = ""
     st.last_kick_ts = time.time()
     st.last_applied_fan = fan
     st.kick_count += 1
     st.last_status = f"{why} fan={fan}"
     st.note(f"#{st.kick_count} {why} -> {new_plan}")
+
+
+def mark_put_fail(st: Settings, err: Exception | BaseException) -> None:
+    if st.put_fail_since is None:
+        st.put_fail_since = time.time()
+    st.last_error = f"{type(err).__name__}: {err}"
+    st.note(f"apply failed: {st.last_error}", level=logging.WARNING)
+    st.last_status = f"ERROR {err}"
+    LOG.warning("PUT/apply failure detail:\n%s", traceback.format_exc())
+
+
+def maybe_auto_restart(st: Settings) -> bool:
+    """If PUT has failed long enough, soft-restart the miner (opt-in).
+
+    Returns True if a restart was attempted (caller should skip normal render
+    / treat this poll as recovery). Uses GET /mcb/restart — works even when
+    PUT is wedged. Never calls /mcb/facrst.
+    """
+    if not st.put_fail_restart_enabled:
+        return False
+    if st.put_fail_since is None:
+        return False
+    elapsed_min = (time.time() - st.put_fail_since) / 60.0
+    if elapsed_min < st.put_fail_restart_after_min:
+        return False
+    if st.last_restart_ts > 0:
+        since_restart = (time.time() - st.last_restart_ts) / 60.0
+        if since_restart < st.put_fail_restart_cooldown_min:
+            left = st.put_fail_restart_cooldown_min - since_restart
+            st.last_status = f"PUT_FAIL restart_cd {left:.0f}m"
+            return False
+
+    st.note(
+        f"PUT failed for {elapsed_min:.1f}m — soft restart "
+        f"(after_min={st.put_fail_restart_after_min:g})"
+    )
+    st.last_status = "SOFT_RESTART"
+    print(
+        f"\n[{time.strftime('%H:%M:%S')}] PUT wedged ~{elapsed_min:.1f}m — "
+        f"soft restart via GET /mcb/restart …",
+        flush=True,
+    )
+    try:
+        msg = sc.soft_restart()
+        st.note(msg)
+        print(f"  {msg}", flush=True)
+    except Exception as e:
+        st.note(f"soft_restart failed: {e}")
+        st.last_status = f"RESTART_FAIL {e}"
+        st.last_restart_ts = time.time()  # backoff even on failure
+        print(f"  soft_restart failed: {e}", flush=True)
+        return True
+
+    st.last_restart_ts = time.time()
+    st.restart_count += 1
+    print(
+        f"  waiting up to {st.put_fail_restart_wait_s:.0f}s for miner …",
+        flush=True,
+    )
+    ok = sc.wait_until_up(timeout_s=st.put_fail_restart_wait_s)
+    if ok:
+        st.note(f"miner up after soft restart #{st.restart_count}")
+        st.put_fail_since = None
+        st.last_applied_fan = None  # force re-apply after reboot
+        st.last_status = "RESTARTED_OK"
+        print("  miner back up — will re-apply fans next cycle", flush=True)
+    else:
+        st.note("miner did not come back in time after soft restart")
+        st.last_status = "RESTART_TIMEOUT"
+        print("  miner did not come back in time", flush=True)
+    return True
 
 
 def restore_auto() -> None:
@@ -326,6 +483,20 @@ def render(
         f"desired={desired if desired is not None else '-'}  "
         f"last={st.last_applied_fan if st.last_applied_fan is not None else '-'}"
     )
+    if st.put_fail_restart_enabled:
+        fail_s = ""
+        if st.put_fail_since is not None:
+            fail_m = (time.time() - st.put_fail_since) / 60.0
+            fail_s = f"  put_fail={fail_m:.1f}m/{st.put_fail_restart_after_min:g}m"
+        print(
+            f"put_fail_restart=ON after {st.put_fail_restart_after_min:g}m  "
+            f"cooldown={st.put_fail_restart_cooldown_min:g}m  "
+            f"restarts={st.restart_count}{fail_s}"
+        )
+    if st.last_error:
+        print(f"LAST ERROR: {st.last_error}")
+    if st.log_file:
+        print(f"log_file={st.log_file}  step_errors={st.step_error_count}")
     print("-" * 72)
     print(f"{'BOARD':<6} {'TEMP':>8} {'FANS':<40} {'TH/s':>8}")
     for b in boards.get("boards") or []:
@@ -368,6 +539,13 @@ def save_runtime_config(path: Path, cfg: dict, st: Settings) -> None:
         "apply_interval_s": st.smooth_apply_interval_s,
     }
     out["safety"]["abort_c"] = st.abort_c
+    out["safety"]["restore_auto_on_exit"] = st.restore_auto_on_exit
+    out["safety"]["put_fail_restart_enabled"] = st.put_fail_restart_enabled
+    out["safety"]["put_fail_restart_after_min"] = st.put_fail_restart_after_min
+    out["safety"]["put_fail_restart_cooldown_min"] = (
+        st.put_fail_restart_cooldown_min
+    )
+    out["safety"]["put_fail_restart_wait_s"] = st.put_fail_restart_wait_s
     path.write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
     st.note(f"saved {path}")
 
@@ -402,15 +580,18 @@ def handle_key(ch: str, st: Settings, cfg: dict, cfg_path: Path | None) -> str |
                 fan = st.steps[-1][1]
             apply_fan(st, fan, "FORCE")
         except Exception as e:
-            st.note(f"kick failed: {e}")
+            mark_put_fail(st, e)
+            maybe_auto_restart(st)
     elif ch in ("r", "R"):
         try:
             restore_auto()
+            st.put_fail_since = None
             st.note("restored auto/stock plan")
             st.last_status = "RESTORED_AUTO"
             st.last_applied_fan = None
         except Exception as e:
-            st.note(f"restore failed: {e}")
+            mark_put_fail(st, e)
+            maybe_auto_restart(st)
     elif ch in ("s", "S"):
         dest = cfg_path or Path("sclite_temp_manager.runtime.json")
         try:
@@ -420,9 +601,44 @@ def handle_key(ch: str, st: Settings, cfg: dict, cfg_path: Path | None) -> str |
     return None
 
 
+def render_api_down(st: Settings) -> None:
+    """Keep interactive UI alive when the miner is unreachable."""
+    sys.stdout.write("\033[H\033[J")
+    print("SC Lite temp manager — API DOWN")
+    print(f"host={sc.host()}  status={st.last_status}")
+    if st.last_error:
+        print(f"LAST ERROR: {st.last_error}")
+    if st.log_file:
+        print(f"log_file={st.log_file}")
+    print("Will keep retrying…  (q to quit when keys are polled)")
+    if st.messages:
+        print("log:")
+        for m in st.messages[-8:]:
+            print(" ", m)
+    sys.stdout.flush()
+
+
 def control_step(st: Settings) -> str:
-    setting = sc.get_setting()
-    boards = sc.board_snapshot()
+    try:
+        setting = sc.get_setting()
+        boards = sc.board_snapshot()
+    except Exception as e:
+        # Miner may be mid-reboot after soft restart, or briefly unreachable.
+        st.last_error = f"{type(e).__name__}: {e}"
+        st.last_status = f"API_DOWN {e}"
+        st.note(st.last_status, level=logging.WARNING)
+        LOG.warning("API down:\n%s", traceback.format_exc())
+        if st.put_fail_since is not None and maybe_auto_restart(st):
+            return "restarted"
+        if st.interactive:
+            render_api_down(st)
+        else:
+            print(
+                f"t={time.strftime('%H:%M:%S')} status={st.last_status}",
+                flush=True,
+            )
+        return "ok"
+
     watched, row = watched_temp(boards, st.board)
     desired: int | None = None
     if watched is not None:
@@ -434,7 +650,8 @@ def control_step(st: Settings) -> str:
         try:
             apply_fan(st, max(st.kick_fan, st.smooth_max_fan, 80), "ABORT")
         except Exception as e:
-            st.note(f"abort kick failed: {e}")
+            mark_put_fail(st, e)
+            maybe_auto_restart(st)
         if st.interactive:
             render(st, setting, boards, watched, row, desired)
         else:
@@ -471,8 +688,9 @@ def control_step(st: Settings) -> str:
                     why = f"{why}_REPULSE"
                 apply_fan(st, desired, why)
             except Exception as e:
-                st.note(f"apply failed: {e}")
-                st.last_status = f"ERROR {e}"
+                mark_put_fail(st, e)
+                if maybe_auto_restart(st):
+                    return "restarted"
     elif in_cooldown:
         st.last_status = "COOLDOWN"
     elif desired is None:
@@ -484,6 +702,11 @@ def control_step(st: Settings) -> str:
             st.last_applied_fan = None
     else:
         st.last_status = "IDLE"
+
+    # Timer-based restart even if we are not applying this cycle
+    # (e.g. still in ERROR streak / waiting for threshold).
+    if st.put_fail_since is not None and maybe_auto_restart(st):
+        return "restarted"
 
     try:
         setting = sc.get_setting()
@@ -521,11 +744,38 @@ def main() -> None:
     ap.add_argument("--poll", type=float, default=None)
     ap.add_argument("--abort-c", type=float, default=None)
     ap.add_argument("--board", default=None)
+    ap.add_argument(
+        "--put-fail-restart",
+        action="store_true",
+        help="enable soft restart after sustained PUT failures (default off)",
+    )
+    ap.add_argument(
+        "--put-fail-restart-after-min",
+        type=float,
+        default=None,
+        help="minutes of PUT failure before soft restart (default 5)",
+    )
     ap.add_argument("--no-ui", action="store_true")
     ap.add_argument("--once", action="store_true")
+    ap.add_argument(
+        "--log-file",
+        default=None,
+        help="append log path (default: sclite_temp_manager.log next to config). "
+        "Use 'off' to disable file logging.",
+    )
+    ap.add_argument(
+        "--max-step-errors",
+        type=int,
+        default=50,
+        help="exit after this many consecutive uncaught step errors (0=never)",
+    )
     args = ap.parse_args()
 
     cfg = load_config(args.config)
+    log_path = resolve_log_path(cfg, args.config, args.log_file)
+    ui = cfg.get("ui") or {}
+    setup_logging(log_path, str(ui.get("log_level", "INFO")))
+
     miner = cfg.get("miner") or {}
     ip = miner.get("ip") or os.environ.get("SCLITE_IP") or ""
     password = miner.get("password") or os.environ.get("SCLITE_PASSWORD") or ""
@@ -535,6 +785,10 @@ def main() -> None:
         sc.configure(password=password)
 
     st = settings_from_config(cfg)
+    if log_path is not None:
+        st.log_file = str(log_path)
+    else:
+        st.log_file = None
     if args.mode:
         st.mode = args.mode
     if args.on_temp is not None:
@@ -549,6 +803,11 @@ def main() -> None:
         st.abort_c = args.abort_c
     if args.board is not None:
         st.board = args.board if args.board == "max" else int(args.board)
+    if args.put_fail_restart:
+        st.put_fail_restart_enabled = True
+    if args.put_fail_restart_after_min is not None:
+        st.put_fail_restart_after_min = args.put_fail_restart_after_min
+        st.put_fail_restart_enabled = True  # implying enable when threshold set
     if args.no_ui:
         st.interactive = False
 
@@ -566,6 +825,15 @@ def main() -> None:
         f"connecting {sc.host()} mode={st.mode} abort={st.abort_c} "
         f"poll={st.poll_s}s"
     )
+    if st.log_file:
+        print(f"log_file={st.log_file}", flush=True)
+    if st.put_fail_restart_enabled:
+        print(
+            f"put_fail_restart=ON after {st.put_fail_restart_after_min:g}m "
+            f"(cooldown {st.put_fail_restart_cooldown_min:g}m, "
+            f"wait {st.put_fail_restart_wait_s:g}s) — GET /mcb/restart only",
+            flush=True,
+        )
     if st.mode == "smooth" and st.force_tempcontrol_on:
         print(
             "NOTE: smooth mode works best with tempcontrol OFF "
@@ -578,10 +846,18 @@ def main() -> None:
             "(force_tempcontrol_on=true).",
             file=sys.stderr,
         )
-    sc.login()
+    try:
+        sc.login()
+    except Exception as e:
+        LOG.error("login failed: %s\n%s", e, traceback.format_exc())
+        print(f"LOGIN FAILED: {e}", file=sys.stderr)
+        if st.log_file:
+            print(f"See log: {st.log_file}", file=sys.stderr)
+        sys.exit(1)
     st.note("logged in")
 
     exit_code = 0
+    consecutive_step_errors = 0
     try:
         while True:
             deadline = time.time() + st.poll_s
@@ -589,31 +865,89 @@ def main() -> None:
                 if st.interactive:
                     ch = read_key()
                     if ch:
-                        action = handle_key(ch, st, cfg, args.config)
+                        try:
+                            action = handle_key(ch, st, cfg, args.config)
+                        except Exception as e:
+                            st.last_error = f"{type(e).__name__}: {e}"
+                            st.note(f"key handler failed: {e}", level=logging.ERROR)
+                            LOG.error("key handler:\n%s", traceback.format_exc())
+                            action = None
                         if action == "quit":
                             raise KeyboardInterrupt
                 if args.once or time.time() >= deadline:
                     break
                 time.sleep(0.05)
 
-            result = control_step(st)
+            try:
+                result = control_step(st)
+                consecutive_step_errors = 0
+            except Exception as e:
+                consecutive_step_errors += 1
+                st.step_error_count += 1
+                st.last_error = f"{type(e).__name__}: {e}"
+                st.last_status = f"STEP_CRASH {e}"
+                st.note(
+                    f"step crashed ({consecutive_step_errors}): {st.last_error}",
+                    level=logging.ERROR,
+                )
+                LOG.error(
+                    "uncaught control_step error #%s:\n%s",
+                    consecutive_step_errors,
+                    traceback.format_exc(),
+                )
+                # Interactive UI wipe would hide this — force stderr + pause briefly
+                print(
+                    f"\n[{time.strftime('%H:%M:%S')}] STEP CRASH: {st.last_error}\n"
+                    f"  (logged; continuing — consecutive={consecutive_step_errors})",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                if st.interactive:
+                    render_api_down(st)
+                max_err = int(args.max_step_errors)
+                if max_err > 0 and consecutive_step_errors >= max_err:
+                    LOG.error(
+                        "too many consecutive step errors (%s) — exiting",
+                        consecutive_step_errors,
+                    )
+                    print(
+                        f"Too many consecutive step errors ({consecutive_step_errors}). "
+                        f"Exiting. See log: {st.log_file or '(stderr only)'}",
+                        file=sys.stderr,
+                    )
+                    exit_code = 3
+                    break
+                time.sleep(max(1.0, st.poll_s))
+                continue
+
             if result == "abort":
+                LOG.warning("abort threshold hit — exiting loop")
                 exit_code = 2
                 break
             if args.once:
                 break
     except KeyboardInterrupt:
         st.note("exit requested")
+        LOG.info("exit requested (KeyboardInterrupt)")
         if st.interactive:
             print("\nexiting…")
+    except Exception as e:
+        LOG.error("fatal main-loop error: %s\n%s", e, traceback.format_exc())
+        print(f"FATAL: {e}", file=sys.stderr)
+        if st.log_file:
+            print(f"See log: {st.log_file}", file=sys.stderr)
+        exit_code = max(exit_code, 1)
     finally:
         if st.restore_auto_on_exit:
             try:
                 restore_auto()
                 print("restored auto/stock on exit")
+                LOG.info("restored auto/stock on exit")
             except Exception as e:
+                LOG.error("restore on exit failed: %s", e)
                 print(f"restore on exit failed: {e}", file=sys.stderr)
                 exit_code = max(exit_code, 1)
+        LOG.info("shutdown exit_code=%s status=%s", exit_code, st.last_status)
 
     sys.exit(exit_code)
 
