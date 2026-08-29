@@ -24,6 +24,8 @@
     "put_fail_restart_wait_s": 120
   },
   "ui": {
-    "interactive": true
+    "interactive": true,
+    "log_file": "sclite_temp_manager.log",
+    "log_level": "INFO"
   }
 }
