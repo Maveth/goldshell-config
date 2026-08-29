@@ -1,0 +1,25 @@
+{
+  "miner": {
+    "ip": "192.168.x.x",
+    "password": ""
+  },
+  "control": {
+    "mode": "steps",
+    "cooldown_s": 52,
+    "poll_s": 4.0,
+    "board": "max",
+    "force_tempcontrol_on": true,
+    "steps": [
+      { "temp": 70, "fan": 70 },
+      { "temp": 80, "fan": 80 },
+      { "temp": 85, "fan": 90 }
+    ]
+  },
+  "safety": {
+    "abort_c": 90.0,
+    "restore_auto_on_exit": false
+  },
+  "ui": {
+    "interactive": true
+  }
+}
