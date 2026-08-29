@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Shared Goldshell SC Lite HTTP + JWT helpers (fw 2.2.0)."""
+"""Shared Goldshell HS Box HTTP + JWT helpers.
+
+Same auth / /mcb API as SC Lite. Powerplan parse/build here accepts HS Box
+dialect: decimal V and optional PV (verified live by Hersh-23).
+Do not mix this file with sc-lite/python — keep model trees separate.
+"""
 from __future__ import annotations
 
 import json
