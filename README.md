@@ -15,6 +15,7 @@ The SC5-Pro has been more annoying/sensitive. If you make progress on any Blake2
 | [`sc-lite/miner-profile`](sc-lite/miner-profile) | Bash reclock profiles (browser JWT) |
 | [`sc-lite/miner-health`](sc-lite/miner-health) / [`miner-runtime`](sc-lite/miner-runtime) | Bash status helpers |
 | [`sc-lite/python/`](sc-lite/python/) | Auto-login Python tools + **temp manager** (fan kick when hot) |
+| [`sc-lite/POOL_FAILBACK.md`](sc-lite/POOL_FAILBACK.md) | Sticky failover → kick back to preferred pool (`sclite_pool_failback.py`) |
 
 ### Fan control (verified)
 

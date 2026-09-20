@@ -17,6 +17,9 @@ export TOKEN='…'   # localStorage.getItem('token') on /#/debug
 
 See [`python/README.md`](python/README.md).
 
+**Pool failback** (sticky failover → kick back to preferred pool):  
+[`POOL_FAILBACK.md`](POOL_FAILBACK.md) · `python/sclite_pool_failback.py`
+
 ## Useful HTTP surfaces
 
 | Path | Role |
@@ -25,6 +28,9 @@ See [`python/README.md`](python/README.md).
 | `GET/PUT /mcb/setting` | powerplan / manual / tempcontrol |
 | `GET /mcb/status` | model / firmware |
 | `GET /mcb/pools` | stratum pools |
+| `PUT /mcb/pools` | reorder / set active (failback) |
+| `PUT /mcb/newpool` / `PUT /mcb/delpool` | add / remove pool slots |
+| `GET /mcb/restart` | soft restart (not factory reset) |
 | `GET /mcb/cgminer?cgminercmd=devs` | temps / fans / hashrate |
 | `GET /dbg/minerinfo` | voltage / clock |
 | `GET /dbg/fanctrllog` | `target_temp:85` + duty steps |

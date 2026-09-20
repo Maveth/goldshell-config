@@ -143,3 +143,18 @@ python sclite_tempcontrol_test.py --fan 70 --abort-c 88 --max-seconds 90
 ```
 
 CLI: `--mode single|steps|smooth`, `--on-temp`, `--kick-fan`, `--cooldown`, `--poll`, `--abort-c`, `--board`, `--put-fail-restart`, `--put-fail-restart-after-min`, `--no-ui`, `--once`.
+
+## Pool failback (sticky failover -> preferred pool)
+
+Goldshell often **stays on pool 1** after pool 0 comes back.
+Full write-up: **[\../POOL_FAILBACK.md\](../POOL_FAILBACK.md)**
+
+\\powershell
+\='192.168.0.202'
+python sclite_pool_failback.py --once                 # status only
+\='your-miner-password'
+python sclite_pool_failback.py --once --apply         # PUT pools + soft restart
+python sclite_pool_failback.py --once --apply --force # force re-kick this miner
+python sclite_pool_failback.py --watch 30 --grace 60 --apply
+\
+Status uses \:4028\ (no password). \--apply\ needs JWT via \SCLITE_PASSWORD\.
