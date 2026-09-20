@@ -3,3 +3,4 @@ __pycache__/
 *.runtime.json
 sclite_temp_manager.json
 .DS_Store
+sc-lite/webui/miners.json

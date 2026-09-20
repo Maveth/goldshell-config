@@ -61,6 +61,7 @@ Layout follows upstream: **one directory per product**. SC Lite / HS Box / SC Pr
 | Upstream bash (`miner-profile` etc.) | Reclock profiles (browser JWT) |
 | `sc-lite/python/*` | Auto-login helpers, abort-safe `tempcontrol` test, **temp manager** (kick fans when hot) |
 | [sc-lite/POOL_FAILBACK.md](sc-lite/POOL_FAILBACK.md) / python/sclite_pool_failback.py | Sticky failover → kick preferred pool (PUT /mcb/pools + soft restart) |
+| [sc-lite/webui/](sc-lite/webui/) | **Fleet web UI** — multi-miner fans/pools/failback/auto-fan (copy `miners.example.json` → `miners.json`) |
 
 ### Lab known fact: ~3s Stratum flap is NORMAL
 

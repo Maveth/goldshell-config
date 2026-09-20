@@ -1,0 +1,19 @@
+{
+  "fan_defaults": {
+    "profile": "steps-default",
+    "enabled_default": false
+  },
+  "miners": [
+    {
+      "id": "sclite-202",
+      "name": "SC Lite Lab",
+      "ip": "192.168.0.202",
+      "password": "CHANGE_ME",
+      "fan_control": {
+        "enabled": false,
+        "profile": "steps-default",
+        "fan_offset": 0
+      }
+    }
+  ]
+}

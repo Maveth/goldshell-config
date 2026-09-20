@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SC Lite Control</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="app">
+    <h1><span class="brand">SC Lite</span> Control</h1>
+    <div class="tabs">
+      <button type="button" id="tabFleet" class="active">Fleet</button>
+      <button type="button" id="tabDetail">Miner</button>
+      <button type="button" id="tabBatch">Batch</button>
+      <button type="button" id="tabSettings">Settings</button>
+    </div>
+    <div class="spacer"></div>
+    <div class="row">
+      <button type="button" id="btnRefresh">Refresh</button>
+      <label class="muted"><input type="checkbox" id="autoRefresh" checked /> auto</label>
+    </div>
+  </header>
+
+  <main>
+    <!-- FLEET -->
+    <section id="viewFleet">
+      <div class="panel compact">
+        <div class="row">
+          <button type="button" id="btnSelectAll">All</button>
+          <button type="button" id="btnSelectNone">None</button>
+          <span class="muted">|</span>
+          <button type="button" id="btnFleetFanMinus">Fan −</button>
+          <span id="fleetFanVal" class="mono">70</span>
+          <input type="range" id="fleetFan" min="20" max="100" value="70" style="width:7rem" />
+          <button type="button" id="btnFleetFanPlus">Fan +</button>
+          <button type="button" class="primary" id="btnFleetFan">Kick</button>
+          <button type="button" id="btnFleetFailback">Failback P0</button>
+          <button type="button" class="danger" id="btnFleetRestart">Restart</button>
+        </div>
+      </div>
+      <div id="fleetGrid" class="grid"></div>
+    </section>
+
+    <!-- DETAIL -->
+    <section id="viewDetail" class="hidden">
+      <div class="row gap">
+        <button type="button" id="btnBackFleet">← Fleet</button>
+        <h2 id="detailTitle" style="margin:0">Miner</h2>
+        <span id="detailPill" class="pill">—</span>
+      </div>
+      <div class="split" style="margin-top:0.75rem">
+        <div>
+          <div class="panel compact">
+            <h2>Live</h2>
+            <div class="kv" id="detailKv"></div>
+          </div>
+          <div class="panel compact">
+            <h2>Boards</h2>
+            <div id="detailBoards" class="muted">—</div>
+          </div>
+          <div class="panel compact">
+            <h2>Fan / plan</h2>
+            <div class="slider-row">
+              <button type="button" id="btnDetailFanMinus">−</button>
+              <input type="range" id="detailFan" min="20" max="100" value="70" />
+              <span id="detailFanVal" class="mono">70</span>
+              <button type="button" id="btnDetailFanPlus">+</button>
+              <button type="button" class="primary" id="btnDetailFan">Kick</button>
+            </div>
+            <div class="row gap">
+              <label><input type="checkbox" id="detailTc" checked /> tempcontrol</label>
+              <button type="button" id="btnDetailTc">Apply TC</button>
+              <button type="button" class="danger" id="btnDetailRestart">Restart</button>
+            </div>
+            <div class="row gap">
+              <input id="planMhz" placeholder="MHz" style="width:5rem" />
+              <input id="planMv" placeholder="mV" style="width:5rem" />
+              <input id="planPv" placeholder="PV" style="width:5rem" />
+              <button type="button" id="btnDetailPlan">Set plan</button>
+            </div>
+            <p class="muted" id="detailPlanRaw">—</p>
+          </div>
+        </div>
+        <div>
+          <div class="panel compact">
+            <h2>Pools</h2>
+            <div class="row gap">
+              <button type="button" class="primary" id="btnFailback">Failback</button>
+              <input id="preferredIdx" type="number" min="0" value="0" style="width:3.5rem" />
+              <button type="button" id="btnReloadPools">Reload</button>
+            </div>
+            <div style="overflow:auto; margin-top:0.5rem">
+              <table>
+                <thead><tr><th>#</th><th>Status</th><th>Work</th><th>Acc</th><th>URL</th><th></th></tr></thead>
+                <tbody id="poolsBody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="panel compact">
+            <h2>Add pool</h2>
+            <div class="row">
+              <input id="poolUrl" placeholder="stratum+tcp://host:port" style="flex:1" />
+              <input id="poolUser" placeholder="address.worker" style="flex:1" />
+              <input id="poolPass" placeholder="x" style="width:3rem" />
+              <button type="button" class="primary" id="btnAddPool">Add</button>
+            </div>
+          </div>
+          <div class="panel compact">
+            <button type="button" class="danger" id="btnRemoveMiner">Remove from registry</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- BATCH -->
+    <section id="viewBatch" class="hidden">
+      <div class="panel compact">
+        <h2>Batch add pool</h2>
+        <p class="muted" style="margin:0 0 0.5rem">Selected miners · user = payout.worker (keep worker) · pass default x</p>
+        <div class="row">
+          <input id="batchPoolUrl" placeholder="host:29120 or stratum+tcp://…" style="flex:1" />
+          <input id="batchPayout" placeholder="payout bc1…" style="flex:1" />
+          <input id="batchWorker" placeholder="worker override" style="width:8rem" />
+          <input id="batchPoolPass" value="x" style="width:3rem" />
+        </div>
+        <div class="row gap">
+          <label class="muted"><input type="checkbox" id="batchKeepWorker" checked /> keep worker</label>
+          <label class="muted"><input type="checkbox" id="batchMakePreferred" /> make P0</label>
+          <label class="muted"><input type="checkbox" id="batchAddRestart" /> restart</label>
+          <button type="button" class="primary" id="btnBatchAddPool">Add to selected</button>
+        </div>
+      </div>
+      <div class="panel compact">
+        <h2>Order / remove / promote</h2>
+        <div class="row">
+          <input id="batchOrder" placeholder="1,0" style="width:8rem" />
+          <button type="button" id="btnBatchOrder">Set order</button>
+          <label class="muted"><input type="checkbox" id="batchOrderRestart" /> restart</label>
+        </div>
+        <div class="row gap">
+          <input id="batchDelUrl" placeholder="URL to remove" style="flex:1" />
+          <button type="button" class="danger" id="btnBatchDelPool">Remove URL</button>
+        </div>
+        <div class="row gap">
+          <input id="batchPrefUrl" placeholder="URL to promote" style="flex:1" />
+          <button type="button" id="btnBatchPromote">Promote → P0</button>
+          <label class="muted"><input type="checkbox" id="batchPromoteRestart" checked /> restart</label>
+        </div>
+      </div>
+      <div class="panel compact">
+        <div class="row">
+          <label class="muted"><input type="checkbox" id="fleetTc" checked /> tempcontrol</label>
+          <button type="button" id="btnFleetTc">Apply TC on selected</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section id="viewSettings" class="hidden">
+      <div class="panel compact">
+        <h2>Auto fan defaults</h2>
+        <p class="muted" style="margin:0 0 0.5rem">tempcontrol walks fans back — auto re-kicks on cooldown when enabled per miner.</p>
+        <div class="row">
+          <label>Profile <select id="fanProfileDefault"></select></label>
+          <button type="button" id="btnSaveFanDefaults">Save default</button>
+          <button type="button" id="btnFanEnableSelected">Enable selected</button>
+          <button type="button" id="btnFanDisableSelected">Disable selected</button>
+          <button type="button" id="btnFanApplyProfileSelected">Apply profile → selected</button>
+        </div>
+        <p class="muted" id="fanRuntimeHint" style="margin:0.5rem 0 0">—</p>
+      </div>
+      <div class="panel compact">
+        <h2>Add miner</h2>
+        <div class="row">
+          <input id="addId" placeholder="id" />
+          <input id="addName" placeholder="name" />
+          <input id="addIp" placeholder="192.168.0.x" />
+          <input id="addPass" type="password" placeholder="password" />
+          <button type="button" class="primary" id="btnAddMiner">Add</button>
+        </div>
+      </div>
+      <div class="panel compact">
+        <h2>Demo miners</h2>
+        <p class="muted" style="margin:0 0 0.5rem">UI-only fakes for layout testing. Not written as real miners; ignored by live actions that hit hardware.</p>
+        <div class="row">
+          <label class="muted"><input type="checkbox" id="demoToggle" /> show 2 demo miners</label>
+          <button type="button" id="btnDemoSave">Save</button>
+        </div>
+      </div>
+    </section>
+
+    <p class="footer-note">Local SC Lite control · JWT + :4028 · soft restart pauses hashing briefly</p>
+  </main>
+  <div id="toast" class="toast"></div>
+  <script src="/app.js"></script>
+</body>
+</html>
