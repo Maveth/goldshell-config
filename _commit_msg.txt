@@ -1,3 +1,0 @@
-Merge pr/pool-failback into master.
-
-SC Lite sticky-failover failback helper and docs (single-miner PUT /mcb/pools + soft restart).
