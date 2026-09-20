@@ -1,3 +1,4 @@
+
 # SC Lite control notes (fw 2.2.0)
 
 **Want the practical guide?** → [`CONNECT_AND_FANS.md`](CONNECT_AND_FANS.md)  
@@ -181,3 +182,19 @@ See `python/README.md`. These auto-login (AES cipher) so you don’t copy JWT fr
 3. If you disable it: hard time limit + temp abort + restore-on-exit.
 4. Watch the **hottest board** (often board 0 / CPB side) — cooler boards can look fine while the hot one sits on the 85°C target.
 5. Note: enabling `manual` sometimes briefly bumps reported chip voltage (we saw 9000 ↔ 9330) even when the plan string still said `9100 V`. Re-check `/dbg/minerinfo` after PUTs.
+
+## Pool failback (sticky failover)
+
+Goldshell often stays on backup pool after preferred recovers.
+See **[POOL_FAILBACK.md](POOL_FAILBACK.md)** and python/sclite_pool_failback.py.
+
+`powershell
+cd python
+='192.168.0.202'
+python sclite_pool_failback.py --once
+='your-miner-password'
+python sclite_pool_failback.py --once --apply
+`
+
+Related APIs: GET/PUT /mcb/pools, PUT /mcb/newpool, PUT /mcb/delpool, GET /mcb/restart.
+

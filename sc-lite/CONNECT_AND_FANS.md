@@ -136,4 +136,11 @@ Only disable with an abort watchdog (see `sclite_tempcontrol_test.py`). Do not l
 2. Keep `tempcontrol=true` unless actively watching.
 3. Abort well below firmware cutoff (~95 °C); we used ≥88–90 °C.
 4. After PUTs, re-check temps and `/dbg/minerinfo` voltage (manual mode can nudge reported mV).
+
 5. Avoid casually hitting `/mcb/facrst` (factory reset) or `/mcb/restart`.
+
+## Pool sticky failover
+
+If the miner fails over to pool 1 and will not return when pool 0 is back, see
+[POOL_FAILBACK.md](POOL_FAILBACK.md) (sclite_pool_failback.py: PUT /mcb/pools + soft restart).
+

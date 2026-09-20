@@ -1,3 +1,4 @@
+
 # goldshell-config (MaVeTh fork)
 
 Fork of [BitcoinMechanic/goldshell-config](https://github.com/BitcoinMechanic/goldshell-config) for **Goldshell Blake2b** control-plane notes.
@@ -59,6 +60,7 @@ Layout follows upstream: **one directory per product**. SC Lite / HS Box / SC Pr
 | TCP `:4028` | Unauthenticated miner API reads; write cmds exist but `Access: N` |
 | Upstream bash (`miner-profile` etc.) | Reclock profiles (browser JWT) |
 | `sc-lite/python/*` | Auto-login helpers, abort-safe `tempcontrol` test, **temp manager** (kick fans when hot) |
+| [sc-lite/POOL_FAILBACK.md](sc-lite/POOL_FAILBACK.md) / python/sclite_pool_failback.py | Sticky failover → kick preferred pool (PUT /mcb/pools + soft restart) |
 
 ### Lab known fact: ~3s Stratum flap is NORMAL
 
@@ -126,6 +128,7 @@ sc-lite/
   miner-runtime       # upstream bash voltage/clock dump
   sclite-miner.conf   # env template
   python/             # MaVeTh helpers (auto-login)
+  POOL_FAILBACK.md    # sticky failover kick helper
 ```
 
 ## Credit
