@@ -198,3 +198,16 @@ python sclite_pool_failback.py --once --apply
 
 Related APIs: GET/PUT /mcb/pools, PUT /mcb/newpool, PUT /mcb/delpool, GET /mcb/restart.
 
+## Fleet web UI
+
+Multi-miner control (fans, pools, failback, auto fan-kick): **[webui/](webui/)**
+
+`powershell
+cd webui
+copy miners.example.json miners.json
+# edit miners.json — IP + password (gitignored — never commit)
+pip install -r ..\python\requirements.txt
+python server.py
+# http://127.0.0.1:8787
+`
+
