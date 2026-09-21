@@ -566,6 +566,13 @@ def _run_action(c: MinerClient, action: str, body: dict[str, Any]) -> dict[str, 
     if action == "tempcontrol":
         return c.set_tempcontrol(bool(body.get("enabled", True)))
     if action == "plan":
+        # Voltage / clock changes require explicit unlock — can destroy hardware.
+        wants_clock = any(body.get(k) is not None for k in ("mhz", "mv", "pv"))
+        if wants_clock and not body.get("unlock_voltage"):
+            raise RuntimeError(
+                "Clock/voltage change blocked: set unlock_voltage=true "
+                "(WARNING: can destroy the miner). Fan-only changes do not need unlock."
+            )
         return c.set_plan(
             mhz=body.get("mhz"),
             mv=body.get("mv"),

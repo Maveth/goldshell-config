@@ -356,6 +356,33 @@
     }
     if (s.tempcontrol != null) $("detailTc").checked = !!s.tempcontrol;
 
+    // Fan auto + presets on miner page
+    const mrow = state.miners.find((m) => m.id === state.detailId) || {};
+    const fc = mrow.fan_control || {};
+    const fr = mrow.fan_runtime || {};
+    const detailAuto = $("detailFanAuto");
+    const detailProf = $("detailFanProfile");
+    if (detailAuto) detailAuto.checked = !!fc.enabled;
+    if (detailProf) {
+      const cur = fc.profile || state.fanDefaults.profile || "steps-default";
+      detailProf.innerHTML = Object.keys(state.profiles || {})
+        .map(
+          (k) =>
+            `<option value="${escapeHtml(k)}" ${k === cur ? "selected" : ""}>${escapeHtml(
+              (state.profiles[k] && state.profiles[k].label) || k
+            )}</option>`
+        )
+        .join("");
+    }
+    const dfs = $("detailFanStatus");
+    if (dfs) {
+      dfs.textContent = fr.last_status
+        ? `Auto: ${fr.last_status}${fc.fan_offset ? ` · offset ${fc.fan_offset}` : ""}`
+        : fc.enabled
+          ? "Auto fan ON"
+          : "Auto fan OFF";
+    }
+
     const body = $("poolsBody");
     const workingId = s.working_pool ? Number(s.working_pool.id) : null;
     const pools = s.pools || [];
@@ -588,7 +615,68 @@
       toast(String(e.message || e), true);
     }
   };
+  function setVoltageUnlock(on) {
+    ["planMhz", "planMv", "planPv", "btnDetailPlan"].forEach((id) => {
+      const el = $(id);
+      if (el) el.disabled = !on;
+    });
+  }
+  $("unlockVoltage").onchange = () => {
+    const on = $("unlockVoltage").checked;
+    if (on) {
+      const ok = confirm(
+        "WARNING: Changing clock / voltage / PV can PERMANENTLY DESTROY the miner.\n\n" +
+          "Fan settings do not need this unlock.\n\nUnlock voltage/clock edits?"
+      );
+      if (!ok) {
+        $("unlockVoltage").checked = false;
+        setVoltageUnlock(false);
+        return;
+      }
+    }
+    setVoltageUnlock(on);
+  };
+  setVoltageUnlock(false);
+
+  $("btnDetailFanApply").onclick = async () => {
+    if (!state.detailId) return;
+    try {
+      await api("POST", `/api/miners/${state.detailId}/fan_control`, {
+        enabled: $("detailFanAuto").checked,
+        profile: $("detailFanProfile").value,
+      });
+      toast(
+        `Fan preset ${$("detailFanProfile").value} · auto ${$("detailFanAuto").checked ? "ON" : "OFF"}`
+      );
+      await refreshFleetList();
+      await refreshOne(state.detailId);
+    } catch (e) {
+      toast(String(e.message || e), true);
+    }
+  };
+  $("detailFanAuto").onchange = async () => {
+    if (!state.detailId) return;
+    try {
+      await api("POST", `/api/miners/${state.detailId}/fan_control`, {
+        enabled: $("detailFanAuto").checked,
+        profile: $("detailFanProfile").value,
+      });
+      await refreshFleetList();
+      await refreshOne(state.detailId);
+    } catch (e) {
+      toast(String(e.message || e), true);
+    }
+  };
+
   $("btnDetailPlan").onclick = async () => {
+    if (!$("unlockVoltage").checked) {
+      toast("Unlock voltage/clock first (can destroy hardware)", true);
+      return;
+    }
+    const ok = confirm(
+      "FINAL WARNING: You are about to write MHz / voltage / PV.\nThis can destroy the ASIC.\n\nContinue?"
+    );
+    if (!ok) return;
     try {
       toast(
         await api("POST", `/api/miners/${state.detailId}/action/plan`, {
@@ -597,6 +685,7 @@
           pv: $("planPv").value ? Number($("planPv").value) : undefined,
           fan: Number($("detailFan").value),
           manual: true,
+          unlock_voltage: true,
         })
       );
       await refreshOne(state.detailId);

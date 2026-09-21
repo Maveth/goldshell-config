@@ -60,8 +60,13 @@
             <div id="detailBoards" class="muted">—</div>
           </div>
           <div class="panel compact">
-            <h2>Fan / plan</h2>
-            <div class="slider-row">
+            <h2>Fan</h2>
+            <div class="row gap">
+              <label class="muted"><input type="checkbox" id="detailFanAuto" /> auto fan</label>
+              <select id="detailFanProfile"></select>
+              <button type="button" id="btnDetailFanApply">Apply preset</button>
+            </div>
+            <div class="slider-row" style="margin-top:0.5rem">
               <button type="button" id="btnDetailFanMinus">−</button>
               <input type="range" id="detailFan" min="20" max="100" value="70" />
               <span id="detailFanVal" class="mono">70</span>
@@ -73,11 +78,22 @@
               <button type="button" id="btnDetailTc">Apply TC</button>
               <button type="button" class="danger" id="btnDetailRestart">Restart</button>
             </div>
+            <p class="muted" id="detailFanStatus" style="margin:0.4rem 0 0">—</p>
+          </div>
+          <div class="panel compact">
+            <h2>Clock / voltage <span class="pill warn">dangerous</span></h2>
+            <p class="muted" style="margin:0 0 0.5rem">
+              Fan bias is safe to tweak. <strong>Changing MHz / voltage / PV can destroy the miner.</strong>
+              Unlock only if you accept that risk.
+            </p>
             <div class="row gap">
-              <input id="planMhz" placeholder="MHz" style="width:5rem" />
-              <input id="planMv" placeholder="mV" style="width:5rem" />
-              <input id="planPv" placeholder="PV" style="width:5rem" />
-              <button type="button" id="btnDetailPlan">Set plan</button>
+              <label class="muted"><input type="checkbox" id="unlockVoltage" /> I unlock voltage/clock edits (can destroy hardware)</label>
+            </div>
+            <div class="row gap">
+              <input id="planMhz" placeholder="MHz" style="width:5rem" disabled />
+              <input id="planMv" placeholder="mV / V" style="width:5rem" disabled />
+              <input id="planPv" placeholder="PV" style="width:5rem" disabled />
+              <button type="button" class="danger" id="btnDetailPlan" disabled>Set clock/V</button>
             </div>
             <p class="muted" id="detailPlanRaw">—</p>
           </div>
