@@ -110,27 +110,123 @@ class MinerClient:
                     self._token = None
             raise RuntimeError(f"API {method} {path} failed: {last_err}")
 
+    @staticmethod
+    def _parse_bfg_json(raw: bytes | str) -> dict[str, Any]:
+        """Goldshell :4028 often null-terminates or returns slightly broken JSON."""
+        if isinstance(raw, bytes):
+            text = raw.decode("utf-8", "replace")
+        else:
+            text = raw
+        text = text.replace("\x00", "").strip()
+        if not text:
+            raise RuntimeError("empty bfg response")
+        # Try straight parse
+        try:
+            out = json.loads(text)
+            if isinstance(out, dict):
+                return out
+        except json.JSONDecodeError:
+            pass
+        # Truncate to last closing brace of first object
+        if text[0] == "{":
+            depth = 0
+            in_str = False
+            esc = False
+            for i, ch in enumerate(text):
+                if in_str:
+                    if esc:
+                        esc = False
+                    elif ch == "\\":
+                        esc = True
+                    elif ch == '"':
+                        in_str = False
+                    continue
+                if ch == '"':
+                    in_str = True
+                    continue
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        try:
+                            out = json.loads(text[: i + 1])
+                            if isinstance(out, dict):
+                                return out
+                        except json.JSONDecodeError:
+                            break
+        # Last resort: replace NaN/Infinity which some firmwares emit
+        cleaned = (
+            text.replace("NaN", "null")
+            .replace("Infinity", "null")
+            .replace("-Infinity", "null")
+        )
+        out = json.loads(cleaned)
+        if not isinstance(out, dict):
+            raise RuntimeError("bfg response not an object")
+        return out
+
+    @staticmethod
+    def _bfg_json_complete(buf: bytes) -> bool:
+        """True when buf holds a full top-level JSON object (ignore trailing NULs)."""
+        text = buf.replace(b"\x00", b"").strip()
+        if not text.startswith(b"{"):
+            return False
+        depth = 0
+        in_str = False
+        esc = False
+        for ch in text:
+            if in_str:
+                if esc:
+                    esc = False
+                elif ch == ord("\\"):
+                    esc = True
+                elif ch == ord('"'):
+                    in_str = False
+                continue
+            if ch == ord('"'):
+                in_str = True
+                continue
+            if ch == ord("{"):
+                depth += 1
+            elif ch == ord("}"):
+                depth -= 1
+                if depth == 0:
+                    return True
+        return False
+
     def bfg(self, cmd: str, parameter: str | None = None) -> dict[str, Any]:
         payload: dict[str, Any] = {"command": cmd}
         if parameter is not None:
             payload["parameter"] = parameter
-        s = socket.create_connection((self.ip, BFG_PORT), timeout=5)
-        s.sendall((json.dumps(payload) + "\n").encode())
-        s.settimeout(5)
-        chunks: list[bytes] = []
-        try:
-            while True:
-                b = s.recv(65536)
-                if not b:
-                    break
-                chunks.append(b)
-                if len(b) < 65536:
-                    break
-        except Exception:
-            pass
-        s.close()
-        raw = b"".join(chunks).decode("utf-8", "replace").rstrip("\x00")
-        return json.loads(raw)
+        last_err: Exception | None = None
+        for _attempt in range(3):
+            try:
+                s = socket.create_connection((self.ip, BFG_PORT), timeout=5)
+                s.sendall((json.dumps(payload) + "\n").encode())
+                # Goldshell often splits a multi-KB reply across several TCP
+                # segments; never stop on the first short packet.
+                s.settimeout(2.5)
+                chunks: list[bytes] = []
+                try:
+                    while True:
+                        b = s.recv(65536)
+                        if not b:
+                            break
+                        chunks.append(b)
+                        joined = b"".join(chunks)
+                        if b"\x00" in joined or self._bfg_json_complete(joined):
+                            break
+                except socket.timeout:
+                    pass
+                except Exception:
+                    pass
+                s.close()
+                return self._parse_bfg_json(b"".join(chunks))
+            except Exception as e:
+                last_err = e
+                time.sleep(0.2)
+        raise RuntimeError(f"bfg {cmd} failed: {last_err}")
 
     def ping(self) -> dict[str, Any]:
         """Lightweight reachability via :4028 summary (no JWT)."""
@@ -138,7 +234,20 @@ class MinerClient:
             summ = (self.bfg("summary").get("SUMMARY") or [{}])[0]
             return {"ok": True, "elapsed": summ.get("Elapsed"), "mhs": summ.get("MHS av")}
         except Exception as e:
-            return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+            # JWT fallback — miner still "up" if web API answers
+            try:
+                st = self.api("GET", "/mcb/status")
+                return {
+                    "ok": True,
+                    "via": "jwt",
+                    "status": st if isinstance(st, dict) else None,
+                    "bfg_error": f"{type(e).__name__}: {e}",
+                }
+            except Exception as e2:
+                return {
+                    "ok": False,
+                    "error": f"bfg: {type(e).__name__}: {e}; jwt: {type(e2).__name__}: {e2}",
+                }
 
     def snapshot(self) -> dict[str, Any]:
         """Combined status for UI cards / detail."""
@@ -149,13 +258,18 @@ class MinerClient:
             "ok": False,
             "ts": time.time(),
         }
+        summary: dict[str, Any] = {}
+        pools: list[dict[str, Any]] = []
+        devs: list[dict[str, Any]] = []
+        bfg_ok = False
         try:
             summary = (self.bfg("summary").get("SUMMARY") or [{}])[0]
             pools = list(self.bfg("pools").get("POOLS") or [])
             devs = list(self.bfg("devs").get("DEVS") or [])
+            bfg_ok = True
         except Exception as e:
-            out["error"] = f"bfg: {type(e).__name__}: {e}"
-            return out
+            out["bfg_error"] = f"bfg: {type(e).__name__}: {e}"
+            # Fall through — JWT /mcb can still prove the miner is up.
 
         # working pool = newest last-share among Alive
         working = None
@@ -225,63 +339,67 @@ class MinerClient:
                 return " ".join(parts)
             return str(d.get("Fans") or d.get("Fan Speed") or "")
 
-        out.update(
-            {
-                "ok": True,
-                "elapsed": summary.get("Elapsed"),
-                "accepted": summary.get("Accepted"),
-                "rejected": summary.get("Rejected"),
-                "hw": summary.get("Hardware Errors"),
-                "mhs_av": summary.get("MHS av") or (sum(mhs) if mhs else None),
-                "temp_max": max(temps) if temps else None,
-                "temp_avg": (sum(temps) / len(temps)) if temps else None,
-                "temps": temps,
-                "fan_avg": (sum(fans) / len(fans)) if fans else None,
-                "fans": fans[:8],
-                "devs": [
-                    {
-                        "id": d.get("ID"),
-                        "status": d.get("Status"),
-                        "enabled": d.get("Enabled"),
-                        "temp": _board_temp(d),
-                        "mhs": d.get("MHS av") or d.get("MHS 5s"),
-                        "fans": _board_fans(d),
-                    }
-                    for d in devs
-                ],
-                "pools": [
-                    {
-                        "id": p.get("POOL"),
-                        "priority": p.get("Priority"),
-                        "status": p.get("Status"),
-                        "stratum_active": bool(p.get("Stratum Active")),
-                        "url": p.get("URL"),
-                        "user": p.get("User"),
-                        "accepted": p.get("Accepted"),
-                        "rejected": p.get("Rejected"),
-                        "last_share": p.get("Last Share Time"),
-                    }
-                    for p in pools
-                ],
-                "working_pool": (
-                    {
-                        "id": working.get("POOL"),
-                        "url": working.get("URL"),
-                        "user": working.get("User"),
-                        "accepted": working.get("Accepted"),
-                        "last_share": working.get("Last Share Time"),
-                    }
-                    if working
-                    else None
-                ),
-            }
-        )
+        if bfg_ok:
+            out.update(
+                {
+                    "ok": True,
+                    "elapsed": summary.get("Elapsed"),
+                    "accepted": summary.get("Accepted"),
+                    "rejected": summary.get("Rejected"),
+                    "hw": summary.get("Hardware Errors"),
+                    "mhs_av": summary.get("MHS av") or (sum(mhs) if mhs else None),
+                    "temp_max": max(temps) if temps else None,
+                    "temp_avg": (sum(temps) / len(temps)) if temps else None,
+                    "temps": temps,
+                    "fan_avg": (sum(fans) / len(fans)) if fans else None,
+                    "fans": fans[:8],
+                    "devs": [
+                        {
+                            "id": d.get("ID"),
+                            "status": d.get("Status"),
+                            "enabled": d.get("Enabled"),
+                            "temp": _board_temp(d),
+                            "mhs": d.get("MHS av") or d.get("MHS 5s"),
+                            "fans": _board_fans(d),
+                        }
+                        for d in devs
+                    ],
+                    "pools": [
+                        {
+                            "id": p.get("POOL"),
+                            "priority": p.get("Priority"),
+                            "status": p.get("Status"),
+                            "stratum_active": bool(p.get("Stratum Active")),
+                            "url": p.get("URL"),
+                            "user": p.get("User"),
+                            "accepted": p.get("Accepted"),
+                            "rejected": p.get("Rejected"),
+                            "last_share": p.get("Last Share Time"),
+                        }
+                        for p in pools
+                    ],
+                    "working_pool": (
+                        {
+                            "id": working.get("POOL"),
+                            "url": working.get("URL"),
+                            "user": working.get("User"),
+                            "accepted": working.get("Accepted"),
+                            "last_share": working.get("Last Share Time"),
+                        }
+                        if working
+                        else None
+                    ),
+                }
+            )
 
-        # JWT extras (best-effort)
+        # JWT extras (best-effort). Also marks online if BFG failed.
+        jwt_ok = False
         try:
             setting = self.api("GET", "/mcb/setting")
             status = self.api("GET", "/mcb/status")
             http_pools = self.api("GET", "/mcb/pools")
+            jwt_ok = True
+            out["ok"] = True
             out["setting"] = setting if isinstance(setting, dict) else None
             out["status"] = status if isinstance(status, dict) else None
             out["http_pools"] = http_pools if isinstance(http_pools, list) else http_pools
@@ -302,8 +420,49 @@ class MinerClient:
                 out["tempcontrol"] = setting.get("tempcontrol")
                 out["manual"] = setting.get("manual")
                 out["ledcontrol"] = setting.get("ledcontrol")
+            # When BFG failed, synthesize minimal pool/hash fields from JWT
+            if not bfg_ok and isinstance(http_pools, list):
+                out["pools"] = [
+                    {
+                        "id": i,
+                        "priority": p.get("pool-priority", i),
+                        "status": "Alive" if p.get("active") or i == 0 else "Alive",
+                        "stratum_active": bool(p.get("active")),
+                        "url": p.get("url"),
+                        "user": p.get("user"),
+                        "accepted": None,
+                        "rejected": None,
+                        "last_share": None,
+                    }
+                    for i, p in enumerate(http_pools)
+                    if isinstance(p, dict)
+                ]
+                active = next(
+                    (p for p in http_pools if isinstance(p, dict) and p.get("active")),
+                    http_pools[0] if http_pools else None,
+                )
+                if isinstance(active, dict):
+                    out["working_pool"] = {
+                        "id": active.get("pool-priority", 0),
+                        "url": active.get("url"),
+                        "user": active.get("user"),
+                        "accepted": None,
+                        "last_share": None,
+                    }
+            if not bfg_ok and isinstance(status, dict):
+                # status often has hashrate-ish fields depending on fw
+                for k in ("hashrate", "Hash Rate", "mhs", "MHS"):
+                    if status.get(k) is not None and out.get("mhs_av") is None:
+                        try:
+                            out["mhs_av"] = float(status[k])
+                        except Exception:
+                            pass
         except Exception as e:
             out["jwt_error"] = f"{type(e).__name__}: {e}"
+
+        if not bfg_ok and not jwt_ok:
+            out["ok"] = False
+            out["error"] = out.get("bfg_error") or out.get("jwt_error") or "unreachable"
 
         return out
 

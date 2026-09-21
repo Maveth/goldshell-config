@@ -41,28 +41,123 @@ DEFAULT_IP = os.environ.get("SCLITE_IP", "192.168.0.202")
 BFG_PORT = 4028
 
 
+def _bfg_json_complete(buf: bytes) -> bool:
+    """True when buf holds a full top-level JSON object (ignore trailing NULs)."""
+    text = buf.replace(b"\x00", b"").strip()
+    if not text.startswith(b"{"):
+        return False
+    depth = 0
+    in_str = False
+    esc = False
+    for ch in text:
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == ord("\\"):
+                esc = True
+            elif ch == ord('"'):
+                in_str = False
+            continue
+        if ch == ord('"'):
+            in_str = True
+            continue
+        if ch == ord("{"):
+            depth += 1
+        elif ch == ord("}"):
+            depth -= 1
+            if depth == 0:
+                return True
+    return False
+
+
+def _parse_bfg_json(raw: bytes | str) -> dict[str, Any]:
+    """Goldshell :4028 often null-terminates or returns slightly broken JSON."""
+    if isinstance(raw, bytes):
+        text = raw.decode("utf-8", "replace")
+    else:
+        text = raw
+    text = text.replace("\x00", "").strip()
+    if not text:
+        raise RuntimeError("empty bfg response")
+    try:
+        out = json.loads(text)
+        if isinstance(out, dict):
+            return out
+    except json.JSONDecodeError:
+        pass
+    if text[:1] == "{":
+        depth = 0
+        in_str = False
+        esc = False
+        for i, ch in enumerate(text):
+            if in_str:
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == '"':
+                    in_str = False
+                continue
+            if ch == '"':
+                in_str = True
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    out = json.loads(text[: i + 1])
+                    if isinstance(out, dict):
+                        return out
+                    break
+    cleaned = (
+        text.replace("NaN", "null")
+        .replace("Infinity", "null")
+        .replace("-Infinity", "null")
+    )
+    out = json.loads(cleaned)
+    if not isinstance(out, dict):
+        raise RuntimeError("bfg response not an object")
+    return out
+
+
 def bfg(cmd: str, parameter: str | None = None, host: str | None = None) -> dict[str, Any]:
+    """Read a cgminer-style command from Goldshell :4028.
+
+    Important: replies (especially ``devs``) are often split across several TCP
+    segments. Stopping on the first short packet truncates JSON and raises
+    JSONDecodeError around char ~1448.
+    """
     ip = (host or DEFAULT_IP).replace("http://", "").replace("https://", "").split("/")[0]
     payload: dict[str, Any] = {"command": cmd}
     if parameter is not None:
         payload["parameter"] = parameter
-    s = socket.create_connection((ip, BFG_PORT), timeout=5)
-    s.sendall((json.dumps(payload) + "\n").encode())
-    s.settimeout(5)
-    chunks: list[bytes] = []
-    try:
-        while True:
-            b = s.recv(65536)
-            if not b:
-                break
-            chunks.append(b)
-            if len(b) < 65536:
-                break
-    except Exception:
-        pass
-    s.close()
-    raw = b"".join(chunks).decode("utf-8", "replace").rstrip("\x00")
-    return json.loads(raw)
+    last_err: Exception | None = None
+    for _attempt in range(3):
+        try:
+            s = socket.create_connection((ip, BFG_PORT), timeout=5)
+            s.sendall((json.dumps(payload) + "\n").encode())
+            s.settimeout(2.5)
+            chunks: list[bytes] = []
+            try:
+                while True:
+                    b = s.recv(65536)
+                    if not b:
+                        break
+                    chunks.append(b)
+                    joined = b"".join(chunks)
+                    if b"\x00" in joined or _bfg_json_complete(joined):
+                        break
+            except socket.timeout:
+                pass
+            except Exception:
+                pass
+            s.close()
+            return _parse_bfg_json(b"".join(chunks))
+        except Exception as e:
+            last_err = e
+            time.sleep(0.2)
+    raise RuntimeError(f"bfg {cmd} failed: {last_err}")
 
 
 def read_bfg_pools(host: str | None = None) -> list[dict[str, Any]]:
