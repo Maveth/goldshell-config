@@ -25,6 +25,7 @@ sys.path.insert(0, str(HERE))
 
 from fan_controller import FanController, merge_profiles  # noqa: E402
 from miner_client import MinerClient  # noqa: E402
+from probe import probe_miner  # noqa: E402
 
 _clients: dict[str, MinerClient] = {}
 _lock = threading.RLock()
@@ -395,6 +396,45 @@ class Handler(SimpleHTTPRequestHandler):
                 doc["demo"] = bool(body.get("demo"))
                 save_registry_doc(doc)
                 return json_response(self, 200, {"ok": True, "demo": doc["demo"]})
+
+            if path == "/api/probe":
+                ip = str(body.get("ip") or "").strip()
+                if not ip:
+                    return json_response(self, 400, {"ok": False, "error": "ip required"})
+                pw = str(body.get("password") or "")
+                try_common = bool(body.get("try_common_passwords", True))
+                add = bool(body.get("add_to_registry", False))
+                result = probe_miner(ip, password=pw, try_common_passwords=try_common)
+                if add and result.get("ok") and pw:
+                    # register using suggested id
+                    ident = result.get("identity") or {}
+                    model = (ident.get("model") or "miner").replace(" ", "-").lower()
+                    mid = str(body.get("id") or f"{model}-{ip.split('.')[-1]}")
+                    miners = load_registry()
+                    if any((m.get("ip") or "").strip() == ip for m in miners):
+                        result["registry"] = {"added": False, "error": "duplicate IP"}
+                    else:
+                        profile = ident.get("suggested_profile") or "steps-default"
+                        # map hardware profile to fan profile default
+                        fan_prof = "steps-default"
+                        miners.append(
+                            {
+                                "id": mid,
+                                "name": body.get("name") or ident.get("model") or mid,
+                                "ip": ip,
+                                "password": pw,
+                                "hardware_profile": profile,
+                                "fan_control": {
+                                    "enabled": False,
+                                    "profile": fan_prof,
+                                    "fan_offset": 0,
+                                },
+                            }
+                        )
+                        save_registry(miners)
+                        sync_clients()
+                        result["registry"] = {"added": True, "id": mid}
+                return json_response(self, 200, result)
 
             if path == "/api/fleet/action":
                 action = (body.get("action") or "").strip()

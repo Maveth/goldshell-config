@@ -39,15 +39,11 @@ SCLITE_WEBUI_MINERS=C:\path\to\miners.json
 
 ## Features
 
-### Fleet
-- Card per miner: online, H/s, temp, fans, uptime, **working pool**
-- Sticky-failover warning when P0 Alive but work on another pool
-- **Fan −5 / +5** on cards + fleet (nudges plan bias; updates offset for auto)
-- **Auto fan control** checkbox + profile select (steps / single / smooth) — background re-kick loop (tempcontrol walks fans back otherwise)
-- Multi-select: kick fans, tempcontrol, failback→P0, soft restart
-- **Batch add pool** — URL + payout; **keeps each miner’s worker** (`address.worker`), pass default `x`
-- **Batch order** — set pool indexes (`1,0`), promote URL to P0, remove URL
-- Add / remove miners in local registry
+### Fleet / Batch / Settings
+- Fleet cards: H/s, temp, fans, pool, auto-fan, Fan ±  
+- Batch: add pool (keep worker), order, remove/promote URL  
+- Settings: auto-fan profiles, add miner, demo miners  
+- **Setup / Probe:** learn model/fw/plan dialect/ports/pools from an unknown box; **Copy GitHub issue markdown** (no passwords) for `sc-lite` / `hs-box` / unknown captures
 
 ### Single miner
 - Live boards / temps / fans

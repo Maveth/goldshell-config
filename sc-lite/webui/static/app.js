@@ -672,6 +672,64 @@
     }
   };
 
+  let lastProbe = null;
+  $("btnProbe").onclick = async () => {
+    const ip = $("probeIp").value.trim();
+    if (!ip) return toast("IP required", true);
+    $("btnProbe").disabled = true;
+    $("probeOut").textContent = "Probing…";
+    try {
+      lastProbe = await api("POST", "/api/probe", {
+        ip,
+        password: $("probePass").value,
+        try_common_passwords: $("probeTryCommon").checked,
+        add_to_registry: $("probeAdd").checked,
+      });
+      const id = lastProbe.identity || {};
+      const dialect = lastProbe.dialect || {};
+      const caps = lastProbe.capabilities || {};
+      $("probeOut").textContent = [
+        `ok=${lastProbe.ok}  profile=${id.suggested_profile}  model=${id.model || "?"}  fw=${id.firmware || "?"}`,
+        `ports: 80=${lastProbe.ports && lastProbe.ports["80"]}  4028=${lastProbe.ports && lastProbe.ports["4028"]}  ssh=${lastProbe.ports && lastProbe.ports["22"]}`,
+        `plan: ${dialect.raw || "(none)"}`,
+        `dialect: sc_lite=${dialect.parseable_sc_lite_int_v}  hs_box=${dialect.parseable_hs_box_float_v}`,
+        `notes: ${(dialect.notes || []).join("; ")}`,
+        `fan_kick_likely=${caps.fan_kick_likely}  known_family=${id.known_family}`,
+        lastProbe.registry ? `registry: ${JSON.stringify(lastProbe.registry)}` : "",
+        lastProbe.error ? `error: ${lastProbe.error}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+      $("btnProbeCopyIssue").disabled = !lastProbe.github_issue_markdown;
+      if (lastProbe.registry && lastProbe.registry.added) {
+        await refreshFleetList();
+        await refreshAllSnapshots();
+      }
+      toast(`Probe done · ${id.suggested_profile || "unknown"}`);
+    } catch (e) {
+      $("probeOut").textContent = String(e.message || e);
+      toast(String(e.message || e), true);
+    } finally {
+      $("btnProbe").disabled = false;
+    }
+  };
+  $("btnProbeCopyIssue").onclick = async () => {
+    if (!lastProbe || !lastProbe.github_issue_markdown) return;
+    try {
+      await navigator.clipboard.writeText(lastProbe.github_issue_markdown);
+      toast("GitHub issue markdown copied");
+    } catch (e) {
+      // fallback
+      const ta = document.createElement("textarea");
+      ta.value = lastProbe.github_issue_markdown;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      ta.remove();
+      toast("GitHub issue markdown copied");
+    }
+  };
+
   $("btnDetailFanMinus").onclick = () => {
     if (state.detailId) nudgeFan(state.detailId, -5);
   };

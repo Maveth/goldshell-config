@@ -159,6 +159,25 @@
     <!-- SETTINGS -->
     <section id="viewSettings" class="hidden">
       <div class="panel compact">
+        <h2>Setup / Probe</h2>
+        <p class="muted" style="margin:0 0 0.5rem">
+          Pretend we know nothing: ports, model/fw, plan dialect (SC Lite vs HS Box), pools, capabilities.
+          Optional GitHub issue draft for unknown models (passwords never included).
+        </p>
+        <div class="row">
+          <input id="probeIp" placeholder="192.168.0.x" style="width:10rem" />
+          <input id="probePass" type="password" placeholder="password (optional)" />
+          <label class="muted"><input type="checkbox" id="probeTryCommon" checked /> try common pw</label>
+          <label class="muted"><input type="checkbox" id="probeAdd" /> add if login ok</label>
+          <button type="button" class="primary" id="btnProbe">Probe</button>
+        </div>
+        <div class="row gap">
+          <button type="button" id="btnProbeCopyIssue" disabled>Copy GitHub issue markdown</button>
+          <a id="probeIssueLink" class="muted" href="https://github.com/Maveth/goldshell-config/issues/new" target="_blank" rel="noopener">Open new issue</a>
+        </div>
+        <pre id="probeOut" class="mono" style="margin:0.75rem 0 0;max-height:280px;overflow:auto;font-size:0.75rem;background:var(--panel2);padding:0.6rem;border-radius:10px;white-space:pre-wrap"></pre>
+      </div>
+      <div class="panel compact">
         <h2>Auto fan defaults</h2>
         <p class="muted" style="margin:0 0 0.5rem">tempcontrol walks fans back — auto re-kicks on cooldown when enabled per miner.</p>
         <div class="row">
