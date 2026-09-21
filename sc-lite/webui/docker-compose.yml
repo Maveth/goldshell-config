@@ -1,0 +1,21 @@
+# SC Lite fleet webui — NAS
+# Port 8790 (avoids pool/website 808x and Windows test 8787)
+# host network: reach miner on LAN (192.168.0.202)
+services:
+  sclite-webui:
+    build: .
+    container_name: sclite-webui
+    network_mode: host
+    environment:
+      SCLITE_WEBUI_HOST: "0.0.0.0"
+      SCLITE_WEBUI_PORT: "8790"
+      SCLITE_WEBUI_MINERS: "/data/miners.json"
+    volumes:
+      - ./miners.json:/data/miners.json
+      # live-edit UI without rebuild (optional)
+      - ./static:/app/static:ro
+      - ./server.py:/app/server.py:ro
+      - ./miner_client.py:/app/miner_client.py:ro
+      - ./fan_controller.py:/app/fan_controller.py:ro
+      - ./probe.py:/app/probe.py:ro
+    restart: unless-stopped

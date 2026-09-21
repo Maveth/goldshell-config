@@ -1,0 +1,4 @@
+miners.json
+__pycache__
+*.pyc
+.git

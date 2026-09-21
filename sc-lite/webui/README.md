@@ -24,15 +24,23 @@ copy miners.example.json miners.json
 # edit miners.json — set real IP + password (never commit this file)
 
 python server.py
-# → http://127.0.0.1:8787  (listens on 0.0.0.0 by default — LAN reachable)
+# → http://127.0.0.1:8787 by default (dev)
+```
+
+### NAS (docker)
+
+```bash
+cd /mnt/Alexandria/local/bip110-lab/sclite-webui
+docker compose up -d --build
+# → http://192.168.0.143:8790   (host network, port 8790)
 ```
 
 Env overrides:
 
 ```text
 SCLITE_WEBUI_HOST=0.0.0.0
-SCLITE_WEBUI_PORT=8787
-SCLITE_WEBUI_MINERS=C:\path\to\miners.json
+SCLITE_WEBUI_PORT=8790          # NAS compose default
+SCLITE_WEBUI_MINERS=/data/miners.json
 ```
 
 **Security:** no login on the webui itself — anyone who can reach `:8787` can control configured miners. Use firewall / bind `127.0.0.1` if needed.
