@@ -1,0 +1,2 @@
+# Same as ../python/requirements.txt — so `pip install -r requirements.txt` works from webui/
+pycryptodome>=3.18
