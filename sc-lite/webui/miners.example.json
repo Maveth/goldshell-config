@@ -3,6 +3,16 @@
     "profile": "steps-default",
     "enabled_default": false
   },
+  "watchdog_defaults": {
+    "enabled": false,
+    "dry_run": true,
+    "poll_s": 30,
+    "stall_minutes": 5,
+    "unreachable_minutes": 2,
+    "absent_minutes": 2,
+    "min_gap_minutes": 10,
+    "max_restarts_per_day": 6
+  },
   "miners": [
     {
       "id": "sclite-202",
@@ -13,6 +23,10 @@
         "enabled": false,
         "profile": "steps-default",
         "fan_offset": 0
+      },
+      "watchdog": {
+        "enabled": false,
+        "dry_run": true
       }
     }
   ]

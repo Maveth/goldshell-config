@@ -51,7 +51,9 @@ SCLITE_WEBUI_MINERS=/data/miners.json
 - Fleet cards: H/s, temp, fans, pool, auto-fan, Fan ±  
 - Batch: add pool (keep worker), order, remove/promote URL  
 - Settings: auto-fan profiles, add miner, demo miners  
-- **Setup / Probe:** learn model/fw/plan dialect/ports/pools from an unknown box; **Copy GitHub issue markdown** (no passwords) for `sc-lite` / `hs-box` / unknown captures
+- **Setup / Probe:** learn model/fw/plan dialect/ports/pools/**board count** from an unknown box; **Copy GitHub issue markdown** (no passwords) for `sc-lite` / `hs-box` / `sc-box` / `sc5-pro` / `sc5-pro-ii` / unknown captures
+- **Model table + multi-board parser:** SC5 Pro II (4 boards / 4 fans) and friends — adapted from [ProductGuy’s goldshell-box-tools](https://github.com/crProductGuy/goldshell-box-tools-productguy) (MIT); see `ATTRIBUTION.md` and `fixtures/sc5proii/`
+- **Soft watchdog (stub):** unreachable / share-stall / board-absent → soft restart; **dry_run by default**; no smart-plug power cycle yet (`watchdog_defaults` / per-miner `watchdog` in `miners.json`; status at `/api/watchdog/status`)
 
 ### Single miner
 - Live boards / temps / fans

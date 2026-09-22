@@ -25,13 +25,16 @@ sys.path.insert(0, str(HERE))
 
 from fan_controller import FanController, merge_profiles  # noqa: E402
 from miner_client import MinerClient  # noqa: E402
+from models import profile_for  # noqa: E402
 from probe import probe_miner  # noqa: E402
+from soft_watchdog import SoftWatchdogController  # noqa: E402
 
 _clients: dict[str, MinerClient] = {}
 _lock = threading.RLock()
 _cache: dict[str, Any] = {}
 _cache_lock = threading.Lock()
 _fan_ctrl: FanController | None = None
+_watch_ctrl: SoftWatchdogController | None = None
 
 
 def load_registry_doc() -> dict[str, Any]:
@@ -235,6 +238,7 @@ class Handler(SimpleHTTPRequestHandler):
                 fan_defaults = doc.get("fan_defaults") or {}
                 profiles = merge_profiles(doc.get("profiles"))
                 fan_status = _fan_ctrl.status_blob() if _fan_ctrl else {}
+                watch_status = _watch_ctrl.runtime() if _watch_ctrl else {}
                 rows = []
                 for mid, c in clients.items():
                     snap = None
@@ -261,6 +265,9 @@ class Handler(SimpleHTTPRequestHandler):
                                 "fan_offset": 0,
                             },
                             "fan_runtime": fan_status.get(mid),
+                            "watchdog": mrow.get("watchdog")
+                            or dict(doc.get("watchdog_defaults") or {}),
+                            "watchdog_runtime": watch_status.get(mid),
                         }
                     )
                 rows = rows + demo_miner_rows(doc)
@@ -271,6 +278,7 @@ class Handler(SimpleHTTPRequestHandler):
                         "miners": rows,
                         "demo": bool(doc.get("demo")),
                         "fan_defaults": fan_defaults,
+                        "watchdog_defaults": doc.get("watchdog_defaults") or {},
                         "profiles": {
                             k: {
                                 "label": v.get("label") or k,
@@ -289,6 +297,21 @@ class Handler(SimpleHTTPRequestHandler):
                         "runtime": _fan_ctrl.status_blob() if _fan_ctrl else {},
                         "fan_defaults": doc.get("fan_defaults") or {},
                         "profiles": list(merge_profiles(doc.get("profiles")).keys()),
+                    },
+                )
+            if path == "/api/watchdog/status":
+                doc = load_registry_doc()
+                return json_response(
+                    self,
+                    200,
+                    {
+                        "runtime": _watch_ctrl.runtime() if _watch_ctrl else {},
+                        "watchdog_defaults": doc.get("watchdog_defaults") or {},
+                        "attribution": (
+                            "soft-restart rules adapted from "
+                            "crProductGuy/goldshell-box-tools-productguy (MIT); "
+                            "no smart-plug power cycle yet"
+                        ),
                     },
                 )
             if path.startswith("/api/miners/") and path.endswith("/snapshot"):
@@ -649,20 +672,43 @@ def _run_action(c: MinerClient, action: str, body: dict[str, Any]) -> dict[str, 
 
 
 def main() -> None:
-    global _fan_ctrl
+    global _fan_ctrl, _watch_ctrl
     if not REGISTRY_PATH.is_file():
         example = HERE / "miners.example.json"
         if example.is_file():
             REGISTRY_PATH.write_text(example.read_text(encoding="utf-8"), encoding="utf-8")
             print(f"created {REGISTRY_PATH} from example — edit passwords")
-    # ensure fan_defaults exist
+    # ensure fan_defaults / watchdog_defaults exist
     doc = load_registry_doc()
+    dirty = False
     if "fan_defaults" not in doc:
         doc["fan_defaults"] = {"profile": "steps-default", "enabled_default": False}
+        dirty = True
+    if "watchdog_defaults" not in doc:
+        doc["watchdog_defaults"] = {
+            "enabled": False,
+            "dry_run": True,
+            "poll_s": 30,
+            "stall_minutes": 5,
+            "unreachable_minutes": 2,
+            "absent_minutes": 2,
+            "min_gap_minutes": 10,
+            "max_restarts_per_day": 6,
+        }
+        dirty = True
+    if dirty:
         save_registry_doc(doc)
     sync_clients()
     _fan_ctrl = FanController(get_clients=sync_clients, get_registry=load_registry_doc)
     _fan_ctrl.start()
+    _watch_ctrl = SoftWatchdogController(
+        get_clients=sync_clients,
+        get_registry_doc=load_registry_doc,
+        get_profile=profile_for,
+        snapshot_fn=lambda c: c.snapshot(),
+        poll_s=float((doc.get("watchdog_defaults") or {}).get("poll_s") or 30),
+    )
+    _watch_ctrl.start()
     host = os.environ.get("SCLITE_WEBUI_HOST", "0.0.0.0")
     port = int(os.environ.get("SCLITE_WEBUI_PORT", "8787"))
     httpd = ThreadingHTTPServer((host, port), Handler)
@@ -671,12 +717,15 @@ def main() -> None:
     print(f"  lan:     http://<this-pc-ip>:{port}")
     print(f"registry → {REGISTRY_PATH}")
     print("fan controller: running (enable per miner in UI)")
+    print("soft watchdog: running (disabled/dry_run by default — see miners.json)")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         print("bye")
         if _fan_ctrl:
             _fan_ctrl.stop()
+        if _watch_ctrl:
+            _watch_ctrl.stop()
 
 
 if __name__ == "__main__":

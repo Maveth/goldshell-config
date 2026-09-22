@@ -1,0 +1,1 @@
+{"manualPowerplan":"700 MHz 11750 V 30 RPM 30 RPM PV 11900","ledcontrol":false,"name":" 00:11:22:33:44:55","tempcontrol":true,"select":0,"powerplans":[{"level":0,"info":"700 MHz 11750 V 30 RPM 30 RPM PV 11900"},{"level":2,"info":"513 MHz 10700 V 50 RPM 50 RPM PV 11900"},{"level":3,"info":"0 MHz 0 V 100 RPM 100 RPM"}],"manual":false,"version":"v1.0"}

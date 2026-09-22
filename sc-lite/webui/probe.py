@@ -10,9 +10,17 @@ import urllib.error
 import urllib.request
 from typing import Any
 
+from boards import parse_devs4028, summarize_boards
 from miner_client import MinerClient, parse_plan
+from models import profile_for
 
 COMMON_PASSWORDS = ("123456789", "admin", "goldshell", "")
+
+# Firmware care note (ProductGuy docs/firmware-api.md) — surface in probe markdown.
+FIRMWARE_CARE = [
+    "One request in flight; avoid poll bursts (token race / web backend crash).",
+    "Stock UI Miner settings Save can clear manual clock — prefer plan/fan APIs.",
+]
 
 
 def _tcp_open(ip: str, port: int, timeout: float = 2.0) -> bool:
@@ -25,22 +33,10 @@ def _tcp_open(ip: str, port: int, timeout: float = 2.0) -> bool:
 
 
 def _bfg(ip: str, cmd: str) -> dict[str, Any] | None:
+    """BFG read using MinerClient hardened multi-packet parser when possible."""
     try:
-        s = socket.create_connection((ip, 4028), timeout=4)
-        s.sendall((json.dumps({"command": cmd}) + "\n").encode())
-        s.settimeout(4)
-        chunks: list[bytes] = []
-        try:
-            while True:
-                b = s.recv(65536)
-                if not b:
-                    break
-                chunks.append(b)
-        except Exception:
-            pass
-        s.close()
-        raw = b"".join(chunks).decode("utf-8", "replace").rstrip("\x00")
-        return json.loads(raw)
+        c = MinerClient(ip=ip, password="x", name="probe")
+        return c.bfg(cmd)
     except Exception:
         return None
 
@@ -127,35 +123,85 @@ def detect_plan_dialect(plan: str) -> dict[str, Any]:
     return out
 
 
-def classify_model(status: dict[str, Any] | None, dialect: dict[str, Any]) -> dict[str, Any]:
+def classify_model(
+    status: dict[str, Any] | None,
+    dialect: dict[str, Any],
+    boards_summary: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Identify model using ProductGuy-style capability table + dialect/board hints."""
     model = ""
     fw = ""
+    hardware = ""
+    mcbversion = ""
     if isinstance(status, dict):
         model = str(status.get("model") or status.get("Model") or status.get("type") or "")
         fw = str(status.get("firmware") or status.get("Firmware") or status.get("version") or "")
-        # sometimes nested
+        hardware = str(status.get("hardware") or "")
+        mcbversion = str(status.get("mcbversion") or "")
         for k, v in status.items():
             kl = str(k).lower()
             if not model and "model" in kl:
                 model = str(v)
-            if not fw and ("firm" in kl or "version" in kl):
+            if not fw and ("firm" in kl or kl == "version"):
                 fw = str(v)
 
-    ml = model.lower()
-    suggested = dialect.get("suggested_profile") or "unknown"
-    if "sc lite" in ml or "sclite" in ml or "sc-lite" in ml:
-        suggested = "sc-lite"
-    elif "hs box" in ml or "hs-box" in ml or "hsbox" in ml:
-        suggested = "hs-box"
-    elif "sc5" in ml or "sc pro" in ml or "sc-pro" in ml:
-        suggested = "sc-pro"
+    prof = profile_for(model or None)
+    suggested = prof.get("profile_id") or "unknown"
+
+    # Dialect can refine unknown / ambiguous
+    dial = dialect.get("suggested_profile") or "unknown"
+    if suggested == "unknown" and dial in ("sc-lite", "hs-box"):
+        suggested = dial
+        prof = {**prof, "profile_id": suggested}
+
+    # Board-count hint: SC5 Pro II fixtures show 4 PGA boards + 4 fans
+    nboards = (boards_summary or {}).get("nboards")
+    nfans = (boards_summary or {}).get("nfans")
+    if suggested in ("unknown", "sc5-pro") and nboards == 4 and (nfans or 0) >= 4:
+        suggested = "sc5-pro-ii"
+        prof = {**prof, "profile_id": "sc5-pro-ii", "boards": 4, "fans": 4}
+
+    known = bool(prof.get("known")) or suggested in (
+        "sc-lite",
+        "hs-box",
+        "sc-box",
+        "sc5-pro",
+        "sc5-pro-ii",
+    )
+    needs_capture = suggested in ("unknown",) or not prof.get("verified_string")
 
     return {
         "model": model or None,
         "firmware": fw or None,
+        "hardware": hardware or None,
+        "mcbversion": mcbversion or None,
         "suggested_profile": suggested,
-        "known_family": suggested in ("sc-lite", "hs-box"),
-        "needs_community_capture": suggested in ("unknown", "sc-pro"),
+        "known_family": known,
+        "needs_community_capture": needs_capture,
+        "capability": {
+            "name": prof.get("name"),
+            "plan_dialect": prof.get("plan_dialect"),
+            "board_source": prof.get("board_source"),
+            "dbg_expected": prof.get("dbg_expected"),
+            "fan_target": prof.get("fan_target"),
+            "temp_target_basis": prof.get("temp_target_basis"),
+            "plan_names": prof.get("plan_names"),
+            "absent_signature": prof.get("absent_signature"),
+            "rated_mhs": prof.get("rated_mhs"),
+            "rated_watts": prof.get("rated_watts"),
+            "boards_expected": prof.get("boards"),
+            "fans_expected": prof.get("fans"),
+            "source": prof.get("source"),
+            "known": prof.get("known"),
+            "verified_string": prof.get("verified_string"),
+        },
+        "boards_observed": {
+            "nboards": nboards,
+            "nfans": nfans,
+            "chip_temp_hot": (boards_summary or {}).get("chip_temp_hot"),
+            "mhs_av": (boards_summary or {}).get("mhs_av"),
+        },
+        "attribution": "models/boards adapted from crProductGuy/goldshell-box-tools-productguy (MIT)",
     }
 
 
@@ -193,11 +239,19 @@ def probe_miner(ip: str, password: str = "", try_common_passwords: bool = True) 
             # trim large payloads
             if cmd == "devs":
                 devs = j.get("DEVS") or []
+                try:
+                    boards = parse_devs4028(j)
+                    bsum = summarize_boards(boards)
+                except Exception as e:
+                    boards = []
+                    bsum = {"error": f"{type(e).__name__}: {e}"}
                 result["bfg"]["devs"] = {
                     "count": len(devs),
                     "keys": sorted(devs[0].keys()) if devs else [],
                     "sample": {k: devs[0].get(k) for k in list(devs[0].keys())[:20]} if devs else None,
+                    "boards": bsum,
                 }
+                result["boards"] = bsum
             elif cmd == "pools":
                 pools = j.get("POOLS") or []
                 result["bfg"]["pools"] = [
@@ -315,10 +369,55 @@ def probe_miner(ip: str, password: str = "", try_common_passwords: bool = True) 
     except Exception as e:
         result["http"]["pools_error"] = f"{type(e).__name__}: {e}"
 
+    # Optional /dbg/minerinfo (SC5 / SC-BOX often open; SC Lite often locked)
+    dbg_info: dict[str, Any] = {"attempted": False}
+    try:
+        code, body = _http_get(f"http://{ip}/dbg/minerinfo")
+        # unauth probe first
+        dbg_info = {"attempted": True, "unauth_code": code}
+        if code == 200 and isinstance(body, str) and "[PGA" in body:
+            from boards import parse_minerinfo_boards, summarize_boards as _sumb
+
+            dbg_info["boards"] = _sumb(parse_minerinfo_boards(body))
+            dbg_info["pga_blocks"] = dbg_info["boards"].get("nboards")
+        # authed
+        try:
+            raw = client.api("GET", "/dbg/minerinfo")
+            if isinstance(raw, str) and raw.strip():
+                from boards import parse_minerinfo_boards, summarize_boards as _sumb
+
+                dbg_info["authed"] = True
+                dbg_info["boards"] = _sumb(parse_minerinfo_boards(raw))
+            elif isinstance(raw, dict):
+                dbg_info["authed_json_keys"] = sorted(raw.keys())[:40]
+        except Exception as e:
+            dbg_info["authed_error"] = f"{type(e).__name__}: {e}"
+    except Exception as e:
+        dbg_info["error"] = f"{type(e).__name__}: {e}"
+    result["http"]["dbg_minerinfo"] = dbg_info
+
+    boards_summary = result.get("boards") or (dbg_info.get("boards") if isinstance(dbg_info, dict) else None)
+
     result["identity"] = classify_model(
         status if isinstance(status, dict) else None,
         result.get("dialect") or {},
+        boards_summary if isinstance(boards_summary, dict) else None,
     )
+
+    ident = result["identity"]
+    cap = ident.get("capability") or {}
+    # Named plan levels (SC5 Pro II)
+    plan_names = cap.get("plan_names")
+    if plan_names and isinstance(setting, dict):
+        result["http"]["plan_levels"] = [
+            {
+                "level": p.get("level"),
+                "name": plan_names.get(p.get("level")) if isinstance(plan_names, dict) else None,
+                "info": p.get("info"),
+            }
+            for p in (setting.get("powerplans") or [])
+            if isinstance(p, dict)
+        ]
 
     # Capabilities heuristic
     result["capabilities"] = {
@@ -330,8 +429,18 @@ def probe_miner(ip: str, password: str = "", try_common_passwords: bool = True) 
         "read_pools": "pools" in result["http"],
         "fan_kick_likely": bool((result.get("dialect") or {}).get("parseable_sc_lite_int_v"))
         or bool((result.get("dialect") or {}).get("parseable_hs_box_float_v")),
-        "suggested_webui_profile": (result.get("identity") or {}).get("suggested_profile"),
+        "fan_target_adjustable": bool(cap.get("fan_target")),
+        "temp_target_basis": cap.get("temp_target_basis"),
+        "board_source": cap.get("board_source"),
+        "dbg_expected": cap.get("dbg_expected"),
+        "absent_signature": bool(cap.get("absent_signature")),
+        "nboards_observed": (boards_summary or {}).get("nboards") if isinstance(boards_summary, dict) else None,
+        "nfans_observed": (boards_summary or {}).get("nfans") if isinstance(boards_summary, dict) else None,
+        "suggested_webui_profile": ident.get("suggested_profile"),
         "used_common_password_hint": used_common,
+        "firmware_care": FIRMWARE_CARE,
+        "soft_watchdog_ready": True,
+        "power_cycle_plug": False,
     }
 
     result["ok"] = True
@@ -377,47 +486,70 @@ def render_github_issue(probe: dict[str, Any]) -> str:
     profile = ident.get("suggested_profile") or "unknown"
     plan = dialect.get("raw") or ""
 
+    cap = ident.get("capability") or {}
+    boards = probe.get("boards") or bfg.get("devs", {}).get("boards") or {}
+
     lines = [
         f"### Goldshell probe capture — `{model}` / fw `{fw}`",
         "",
         "Auto-generated by `sc-lite/webui` probe (passwords redacted).",
+        "Model/board tables adapted from "
+        "[crProductGuy/goldshell-box-tools-productguy](https://github.com/crProductGuy/goldshell-box-tools-productguy) (MIT).",
         "",
         "## Identity",
         f"- **IP probed:** `{probe.get('ip')}` (private — optional to omit when filing)",
         f"- **Model:** `{model}`",
         f"- **Firmware:** `{fw}`",
+        f"- **Hardware / MCB:** `{ident.get('hardware')}` / `{ident.get('mcbversion')}`",
         f"- **Suggested profile:** `{profile}`",
         f"- **Known family:** `{ident.get('known_family')}`",
+        f"- **Needs community capture:** `{ident.get('needs_community_capture')}`",
+        f"- **Capability source:** {cap.get('source') or '(n/a)'}",
         "",
         "## Ports",
         f"- 80/http: `{ports.get('80')}`",
         f"- 4028/bfg: `{ports.get('4028')}`",
         f"- 22/ssh: `{ports.get('22')}`",
         "",
+        "## Boards (4028 / dbg)",
+        f"- nboards: `{boards.get('nboards')}` · nfans: `{boards.get('nfans')}` · "
+        f"hot chip: `{boards.get('chip_temp_hot')}` · MHS av: `{boards.get('mhs_av')}`",
+        "",
         "## Powerplan dialect",
         f"- raw: `{plan}`",
+        f"- table dialect: `{cap.get('plan_dialect')}`",
         f"- SC Lite int-V parse: `{dialect.get('parseable_sc_lite_int_v')}`",
         f"- HS Box float-V parse: `{dialect.get('parseable_hs_box_float_v')}`",
+        f"- plan names: `{cap.get('plan_names')}`",
         f"- notes: {', '.join(dialect.get('notes') or []) or '(none)'}",
         "",
         "## Capabilities (heuristic)",
     ]
     for k, v in caps.items():
+        if k == "firmware_care":
+            continue
         lines.append(f"- `{k}`: `{v}`")
+    lines += ["", "### Firmware care", *[f"- {x}" for x in (caps.get("firmware_care") or FIRMWARE_CARE)]]
 
     lines += ["", "## BFG summary", "```json", json.dumps(bfg.get("summary") or {}, indent=2), "```"]
+    if boards:
+        lines += ["", "## Boards summary", "```json", json.dumps(boards, indent=2)[:2500], "```"]
     if bfg.get("devs"):
-        lines += ["", "## BFG devs sample keys", "```json", json.dumps(bfg.get("devs"), indent=2)[:2000], "```"]
+        slim = {k: v for k, v in (bfg.get("devs") or {}).items() if k != "boards"}
+        lines += ["", "## BFG devs sample keys", "```json", json.dumps(slim, indent=2)[:2000], "```"]
     if http.get("setting_keys"):
         lines += ["", "## /mcb/setting keys", "```", ", ".join(http.get("setting_keys") or []), "```"]
+    if http.get("plan_levels"):
+        lines += ["", "## Plan levels", "```json", json.dumps(http.get("plan_levels"), indent=2), "```"]
     if http.get("pools"):
         lines += ["", "## Pools (users redacted)", "```json", json.dumps(http.get("pools"), indent=2), "```"]
 
     lines += [
         "",
         "## Ask / PR ask",
-        "- [ ] Confirm model folder (`sc-lite` / `hs-box` / `sc5-pro` / new)",
+        "- [ ] Confirm model folder (`sc-lite` / `hs-box` / `sc-box` / `sc5-pro` / `sc5-pro-ii` / new)",
         "- [ ] Confirm fan-kick safe with this plan dialect",
+        "- [ ] Soft-watchdog: enable dry_run first?",
         "- [ ] Any fw-specific quirks?",
         "",
         f"_Probe ts: {probe.get('ts')}_",
