@@ -20,6 +20,7 @@ COMMON_PASSWORDS = ("123456789", "admin", "goldshell", "")
 FIRMWARE_CARE = [
     "One request in flight; avoid poll bursts (token race / web backend crash).",
     "Stock UI Miner settings Save can clear manual clock — prefer plan/fan APIs.",
+    "SC Lite: tempcontrol=false does NOT stop the ~85C fanctrl walk (keep ON; re-pulse kicks).",
 ]
 
 

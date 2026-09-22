@@ -104,7 +104,7 @@ Powerplan string shape:
 | fanA / fanB RPM | **Not literal RPM** — fan duty bias / kick. Live fans are ~1000–1800 RPM |
 | PV | Present in stock strings; leave alone unless you know what you’re doing |
 | `manual` | Must be `true` for a custom `manualPowerplan` to stick |
-| `tempcontrol` | Enables `fanctrl` closed-loop toward ~**85°C** |
+| `tempcontrol` | Writable flag — **does not stop** the ~85°C `fanctrl` walk (see below) |
 | `select` | Preset level (`0` stock, `3` looks like stop/zeros) |
 
 ### Useful reads
@@ -137,23 +137,20 @@ Write-ish commands (`setconfig`, `save`, `addpool`, `privileged`) exist but retu
 
 So: RPM fields are a **bias / pulse**, not a locked fan speed.
 
-### `tempcontrol=false` test (do this carefully)
+### `tempcontrol=false` — important finding (2026-09-22)
 
-We ran a timed test:
+On live `Goldshell-SCLITE` fw **2.2.0** (`fixtures/sclite-live/` + follow-up tests):
 
-- OFF + fan fields 70
-- poll every 3s
-- abort if any board ≥ **88°C**
-- hard restore `tempcontrol=true` on timeout / abort / signal
+- With `tempcontrol=true`, `/dbg/fanctrllog` shows a steady loop: `Fans Change … target_temp:85`.
+- With **`tempcontrol=false` for 60s and for 10 minutes** (GET-confirmed; abort if any board >75°C; max seen 70°C; then restored):
+  - **`Fans Change` kept running** with `target_temp:85`
+  - 4028 fan RPMs kept **walking down** between kicks
 
-Results on our unit:
+So **`tempcontrol=false` does not turn off the 85°C fan walk** on this unit (same conclusion ProductGuy/gbox reached on SC-BOX for “flag does not gate fans”). Do not treat OFF as “manual fans only.”
 
-- Peak stayed ~**83.4°C** over 90s (safe)
-- Fans still rose after OFF
-- Even with OFF, live RPM drifted somewhat (not a perfect hard lock)
-- Restore path forced `tempcontrol=true` successfully
+Earlier short OFF+kick tests also saw RPM drift after OFF — consistent with the walk continuing.
 
-**Critical:** never leave `tempcontrol=false` unattended. Always have an automatic restore.
+What the flag *does* do under heat (overheat path) is still unproven. Prefer leaving it **on**. If you flip it: hard time limit + temp abort + restore-on-exit.
 
 Thermal cutoff reported via 4028 `devdetails` was around **95°C** — still do not rely on that as your abort line.
 

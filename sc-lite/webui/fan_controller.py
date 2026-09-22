@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Background auto fan-kick for webui (tempcontrol walks fans back — must repulse)."""
+"""Background auto fan-kick for webui.
+
+Stock SC Lite ``fanctrl`` walks duty back toward ~85 C after a kick (must re-pulse).
+``tempcontrol=false`` does **not** stop that walk (verified 2026-09-22) — keep the
+flag on for safety; re-pulse either way.
+"""
 from __future__ import annotations
 
 import threading
@@ -62,7 +67,8 @@ BUILTIN_PROFILES: dict[str, dict[str, Any]] = {
         "smooth_instant_weight": 1.0,
         "poll_s": 4.0,
         "board": "max",
-        "force_tempcontrol_on": False,
+        # OFF does not stop stock walk — keep ON (2026-09-22 SC Lite finding)
+        "force_tempcontrol_on": True,
         "abort_c": 92.0,
     },
 }

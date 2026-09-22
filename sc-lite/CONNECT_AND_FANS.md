@@ -87,12 +87,17 @@ Example stock: `625 MHz 9100 V 40 RPM 40 RPM PV 9400`
 | fanA / fanB | Shared fan **bias/kick** — not per-fan, not literal RPM |
 | PV | Leave alone unless you know what you’re doing |
 | `manual` | Must be `true` for a custom plan to stick |
-| `tempcontrol` | `true` = auto `fanctrl` toward ~**85 °C** |
+| `tempcontrol` | Writable boolean — **does not stop** the ~85 °C `fanctrl` walk (see below) |
 
 **You can** watch one board’s temp and kick **all** fans when it’s hot.  
 **You cannot** set `fan0` independently of `fan1/2/3` on stock API.
 
-With `tempcontrol=true`, a kick is a **pulse**: peak ~10–20s, clearly elevated ~1–3 minutes, then auto eases back.
+A kick is a **pulse**: peak ~10–20s, clearly elevated ~1–3 minutes, then auto eases back.
+That walk-down continues even when `tempcontrol=false` (verified 2026-09-22 on live
+`Goldshell-SCLITE` fw 2.2.0: 60s and 10 min OFF windows still logged `Fans Change …
+target_temp:85`). So `tempcontrol` is **not** the on/off for the 85 °C fan loop.
+What the flag *does* do (e.g. overheat path under heat) is still unknown — treat
+`false` as incompletely characterized, not as “manual fans only.”
 
 ## 4. Safe fan kick
 
@@ -112,7 +117,7 @@ Because auto mode eases fans down, a watchdog can re-apply fan fields when hot.
 |------|------|----------------|
 | `single` | **Basic** — one threshold → one kick | Keep **ON** |
 | `steps` | **Advanced but safer** — temp ladder (highest match) | Keep **ON** |
-| `smooth` | Continuous weighted ramp (**experimental — not fully tested yet**) | Prefer **OFF** (stock fanctrl fights ramps). Fiddle `smooth.min_temp/max_temp/min_fan/max_fan`. Use abort + restore-on-exit. |
+| `smooth` | Continuous weighted ramp (**experimental — not fully tested yet**) | Keep **ON** for safety; stock `fanctrl` walk continues either way (OFF does **not** disable it). Fiddle `smooth.min_temp/max_temp/min_fan/max_fan`. Use abort + restore-on-exit. |
 
 ```bash
 cp sclite_temp_manager.example.json sclite_temp_manager.json
@@ -125,10 +130,18 @@ Keys: `m` cycle mode · `[` `]` on_temp · `{` `}` kick_fan · `p` pause · `k` 
 
 See [`python/README.md`](python/README.md).
 
-## 6. `tempcontrol` off (risky)
+## 6. `tempcontrol` off (risky / mostly useless for fan control)
 
-`tempcontrol` boolean is writable; **`target_temp` (85) is not**.  
-Only disable with an abort watchdog (see `sclite_tempcontrol_test.py`). Do not leave it off unattended.
+`tempcontrol` boolean is writable; **`target_temp` (85) is not** (no `temp_targets` in
+`/mcb/setting` on SC Lite).
+
+**Important finding (2026-09-22):** setting `tempcontrol=false` does **not** stop
+`/dbg/fanctrllog` `Fans Change` lines or the RPM walk-down toward holding ~85 °C.
+Same behavior as ProductGuy/gbox reported on SC-BOX for “flag does not gate fans.”
+Do not assume OFF = manual-only fans.
+
+Only flip it with an abort watchdog (see `sclite_tempcontrol_test.py`). Do not leave
+it off unattended — overheat-path behavior under heat is still unproven.
 
 ## 7. Safety
 

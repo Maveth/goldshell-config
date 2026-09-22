@@ -28,16 +28,19 @@ Same set as gbox `docs/capture-request.md`, plus `dbg_fanctrllog.txt`
 - `name` in `mcb_setting.json` redacted to `00:11:22:33:44:55`
 - No pools / WiFi / syslogs / password / token files
 
-## `tempcontrol` note from `dbg_fanctrllog.txt`
+## `tempcontrol` note (capture + follow-up tests)
 
-With `tempcontrol=true`, the fan controller log is an active duty loop:
+With `tempcontrol=true`, `dbg_fanctrllog.txt` shows an active duty loop:
 
 ```text
 Fans Change (fan0: 70 ==> 69) … reason(t:73.1 … target_temp:85)
 ```
 
-So on this SC Lite firmware, `tempcontrol` is clearly tied to the **fixed
-85 °C fan control loop**, not “no effect on fans” (SC-BOX finding). We did
-**not** flip `tempcontrol=false` in this capture; whether that only pauses
-the loop vs disables overheat protection is still untested — treat
-`tempcontrol=false` as risky until proven.
+**Follow-up (same unit, 2026-09-22):** `tempcontrol=false` for 60s and for
+**10 minutes** (GET-confirmed; abort if board >75°C; max seen 70°C; restored
+afterward). **`Fans Change` kept running** with `target_temp:85` the whole
+time — the walk-down does **not** stop when the flag is off.
+
+So: the flag-on log alone cannot prove the flag drives the loop (ProductGuy/
+Claude were right). On SC Lite, OFF ≠ “manual fans only.” Overheat-path
+behavior under heat is still unproven.

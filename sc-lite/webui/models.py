@@ -71,7 +71,8 @@ MODELS: dict[str, dict[str, Any]] = {
         "source": (
             "Live capture fixtures/sclite-live 2026-09-22 (fw 2.2.0, hw 30.40.SA, "
             "MCB_V4_3): model Goldshell-SCLITE, 4×PGA / fan0-3, mv_pv plan, "
-            "no temp_targets, /dbg/minerinfo 200 with JWT, fanctrllog target_temp:85"
+            "no temp_targets, /dbg/minerinfo 200 with JWT, fanctrllog target_temp:85; "
+            "tempcontrol=false does NOT stop Fans Change walk (60s + 10min tests)"
         ),
         "verified_string": True,
         "plan_dialect": "mv_pv",
