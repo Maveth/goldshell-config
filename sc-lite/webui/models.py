@@ -65,17 +65,18 @@ MODELS: dict[str, dict[str, Any]] = {
         "profile_id": "sc-lite",
         "rated_mhs": 4_400_000.0,
         "rated_watts": 950.0,
-        "fans": None,
+        "fans": 4,
         "fan_max_rpm": 2200.0,
-        "boards": None,
+        "boards": 4,
         "source": (
-            "ProductGuy table + Maveth/goldshell-config live fw 2.2.0 "
-            "(mv_pv plan, http_devs boards, fixed ~85 C target)"
+            "Live capture fixtures/sclite-live 2026-09-22 (fw 2.2.0, hw 30.40.SA, "
+            "MCB_V4_3): model Goldshell-SCLITE, 4×PGA / fan0-3, mv_pv plan, "
+            "no temp_targets, /dbg/minerinfo 200 with JWT, fanctrllog target_temp:85"
         ),
         "verified_string": True,
         "plan_dialect": "mv_pv",
         "board_source": "http_devs",
-        "dbg_expected": False,
+        "dbg_expected": True,  # answers with JWT on this unit (MCB_V4_3)
         "fan_target": False,
         "temp_target_basis": "fixed",
         "plan_names": None,

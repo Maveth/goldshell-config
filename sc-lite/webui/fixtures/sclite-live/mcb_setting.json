@@ -1,0 +1,19 @@
+{
+  "select": 0,
+  "tempcontrol": true,
+  "ledcontrol": false,
+  "manualPowerplan": "625 MHz 9100 V 75 RPM 75 RPM PV 9400",
+  "name": "00:11:22:33:44:55",
+  "powerplans": [
+    {
+      "level": 0,
+      "info": "625 MHz 9100 V 40 RPM 40 RPM PV 9400"
+    },
+    {
+      "level": 3,
+      "info": "0 MHz 0 V 100 RPM 100 RPM"
+    }
+  ],
+  "manual": true,
+  "version": "v1.0"
+}

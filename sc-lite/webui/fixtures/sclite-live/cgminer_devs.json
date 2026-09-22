@@ -1,0 +1,73 @@
+{
+  "status": 2,
+  "data": [
+    {
+      "valid": 10,
+      "av_hashrate": 1145512.6670000001,
+      "rejected": 5,
+      "time": 14104,
+      "id": 0,
+      "powerplan": 0,
+      "hwerrors": 453,
+      "fanspeed": "1500 rpm / 1500 rpm / 1500 rpm / 1500 rpm",
+      "accepted": 3317,
+      "CPB_name": "NULL",
+      "hwerr_ration": 0.001044,
+      "nonces": 435407,
+      "hashrate": 1160636.767,
+      "temp": "67.1 \u00b0C",
+      "minerstatus": 0
+    },
+    {
+      "valid": 10,
+      "av_hashrate": 1145614.9409999999,
+      "rejected": 4,
+      "time": 14104,
+      "id": 1,
+      "powerplan": 0,
+      "hwerrors": 528,
+      "fanspeed": "1500 rpm / 1500 rpm / 1500 rpm / 1500 rpm",
+      "accepted": 3448,
+      "CPB_name": "NULL",
+      "hwerr_ration": 0.001268,
+      "nonces": 435519,
+      "hashrate": 1116341.0320000001,
+      "temp": "66.4 \u00b0C",
+      "minerstatus": 0
+    },
+    {
+      "valid": 10,
+      "av_hashrate": 1142451.815,
+      "rejected": 3,
+      "time": 14104,
+      "id": 2,
+      "powerplan": 0,
+      "hwerrors": 1790,
+      "fanspeed": "1500 rpm / 1500 rpm / 1500 rpm / 1500 rpm",
+      "accepted": 3498,
+      "CPB_name": "NULL",
+      "hwerr_ration": 0.0041270000000000005,
+      "nonces": 435580,
+      "hashrate": 1131585.313,
+      "temp": "68.1 \u00b0C",
+      "minerstatus": 0
+    },
+    {
+      "valid": 10,
+      "av_hashrate": 1146032.595,
+      "rejected": 1,
+      "time": 14104,
+      "id": 3,
+      "powerplan": 0,
+      "hwerrors": 477,
+      "fanspeed": "1500 rpm / 1500 rpm / 1500 rpm / 1500 rpm",
+      "accepted": 3399,
+      "CPB_name": "NULL",
+      "hwerr_ration": 0.001091,
+      "nonces": 435626,
+      "hashrate": 1127316.612,
+      "temp": "67.6 \u00b0C",
+      "minerstatus": 0
+    }
+  ]
+}

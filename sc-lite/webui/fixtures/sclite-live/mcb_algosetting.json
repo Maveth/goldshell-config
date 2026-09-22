@@ -1,0 +1,10 @@
+{
+  "algos": [
+    {
+      "name": "blake2b(SC)",
+      "id": 0
+    }
+  ],
+  "version": "v1.0",
+  "algo_select": 0
+}

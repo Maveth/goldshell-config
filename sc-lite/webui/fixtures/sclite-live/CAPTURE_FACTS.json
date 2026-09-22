@@ -1,0 +1,49 @@
+{
+  "model": "Goldshell-SCLITE",
+  "firmware": "2.2.0",
+  "hardware": "30.40.SA",
+  "mcbversion": "MCB_V4_3",
+  "nboards_4028": 4,
+  "fan_fields_seen": [
+    "fan0",
+    "fan1",
+    "fan2",
+    "fan3"
+  ],
+  "nfans_guess": 4,
+  "temp_targets_in_setting": false,
+  "tempcontrol": true,
+  "manual": true,
+  "manualPowerplan": "625 MHz 9100 V 75 RPM 75 RPM PV 9400",
+  "setting_keys": [
+    "ledcontrol",
+    "manual",
+    "manualPowerplan",
+    "name",
+    "powerplans",
+    "select",
+    "tempcontrol",
+    "version"
+  ],
+  "voltages_4028": [
+    9330.0,
+    9330.0,
+    9330.0,
+    9330.0
+  ],
+  "dbg_minerinfo_http_line": [
+    "HTTP 200"
+  ],
+  "dbg_minerinfo_has_pga": true,
+  "dbg_minerinfo_locked": false,
+  "auth_notes": [
+    "/mcb/status: auth=raw HTTP 200 bytes=93",
+    "/mcb/setting: auth=raw HTTP 200 bytes=285",
+    "/mcb/cgminer?cgminercmd=devs: auth=raw HTTP 200 bytes=1211",
+    "/mcb/algosetting: auth=raw HTTP 200 bytes=74",
+    "/dbg/minerinfo: auth=raw HTTP 200 bytes=4733",
+    "/dbg/icinfo: auth=raw HTTP 200 bytes=21312",
+    "/dbg/fanctrllog: auth=raw HTTP 200 bytes=732940",
+    "/cpb/hshistory: auth=raw HTTP 200 bytes=3806"
+  ]
+}
