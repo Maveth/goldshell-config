@@ -34,6 +34,8 @@ MODELS: dict[str, dict[str, Any]] = {
             "fan max observed on one unit"
         ),
         "verified_string": True,
+        "support_level": "fleet-monitor",
+        "fan_kick_tested": False,
         "plan_dialect": "box",
         "board_source": "icinfo",
         "dbg_expected": True,
@@ -52,6 +54,8 @@ MODELS: dict[str, dict[str, Any]] = {
         "boards": 1,
         "source": "ProductGuy gbox models.py — retailer listings; model string not read from a unit",
         "verified_string": False,
+        "support_level": "probe-only",
+        "fan_kick_tested": False,
         "plan_dialect": "box",
         "board_source": "icinfo",
         "dbg_expected": True,
@@ -75,6 +79,8 @@ MODELS: dict[str, dict[str, Any]] = {
             "tempcontrol=false does NOT stop Fans Change walk (60s + 10min tests)"
         ),
         "verified_string": True,
+        "support_level": "fleet-monitor",
+        "fan_kick_tested": True,
         "plan_dialect": "mv_pv",
         "board_source": "http_devs",
         "dbg_expected": True,  # answers with JWT on this unit (MCB_V4_3)
@@ -93,6 +99,8 @@ MODELS: dict[str, dict[str, Any]] = {
         "boards": None,
         "source": "Maveth/goldshell-config live HS Box (float-V plan; fan kick confirmed)",
         "verified_string": False,
+        "support_level": "fleet-monitor",
+        "fan_kick_tested": True,
         "plan_dialect": "float_pv",
         "board_source": "http_devs",
         "dbg_expected": False,
@@ -113,11 +121,14 @@ MODELS: dict[str, dict[str, Any]] = {
         "source": (
             "ProductGuy gbox models.py + fixtures/sc5proii (friend/btcrealm capture "
             "2026-09-15; MCB_V3_3 fw 2.2.0 hw 30.50.SA; 4 PGA / 4 fans; mv_pv). "
-            "Live re-confirmed 2026-09-22 via 4028+mcb/status/setting (btcrealm): "
-            "Unicode model Goldshell-SC5ProⅡ, plan 700 MHz 11750 V … PV 11900, "
-            "voltage matches plan (unlike SC Lite), /mcb/status answered without JWT"
+            "Live re-confirmed 2026-09-22 via 4028+mcb/status/setting + our probe "
+            "(btcrealm): Unicode model Goldshell-SC5ProⅡ, plan 700 MHz 11750 V … PV 11900, "
+            "voltage matches plan (unlike SC Lite), /mcb/status answered without JWT, "
+            "~13.8 TH/s / ~3.0 kW DC, hot chip ~90C, no temp_targets"
         ),
         "verified_string": True,
+        "support_level": "fleet-monitor",
+        "fan_kick_tested": False,  # same mv_pv kick path as SC Lite — not live-kicked yet
         "plan_dialect": "mv_pv",
         "board_source": "icinfo",
         "dbg_expected": True,
@@ -139,6 +150,8 @@ MODELS: dict[str, dict[str, Any]] = {
             "capabilities assumed as SC5 Pro II"
         ),
         "verified_string": False,
+        "support_level": "probe-only",
+        "fan_kick_tested": False,
         "plan_dialect": "mv_pv",
         "board_source": "icinfo",
         "dbg_expected": True,
@@ -159,6 +172,8 @@ UNKNOWN: dict[str, Any] = {
     "boards": None,
     "source": "not in the table — probe and file a capture issue",
     "verified_string": False,
+    "support_level": "probe-only",
+    "fan_kick_tested": False,
     "plan_dialect": "box",
     "board_source": "icinfo",
     "dbg_expected": True,

@@ -27,9 +27,22 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# probe one-liner (inside venv):
+# deep probe (default) — paced extra reads: Bearer vs raw auth, plan vs voltage,
+# /dbg/icinfo chips, fanctrllog snippet, algosetting (~20–30s):
 python -c "from probe import probe_miner; print(probe_miner('MINER_IP','PASSWORD')['github_issue_markdown'])"
+
+# faster shallow probe:
+python -c "from probe import probe_miner; print(probe_miner('MINER_IP','PASSWORD', deep=False)['github_issue_markdown'])"
 ```
+
+**Support levels** (from `models.py` + probe):
+
+| Profile | Level | Notes |
+|---|---|---|
+| `sc-lite` | `fleet-monitor` | Live-verified; fan kick tested |
+| `sc5-pro-ii` | `fleet-monitor` | Probe live-verified; fan kick *likely* (same `mv_pv`), not yet kicked |
+| `hs-box` | `fleet-monitor` | Float-V dialect |
+| unknown | `probe-only` | File the markdown as an issue |
 
 ## Run
 

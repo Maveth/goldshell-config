@@ -23,6 +23,121 @@ FIRMWARE_CARE = [
     "SC Lite: tempcontrol=false does NOT stop the ~85C fanctrl walk (keep ON; re-pulse kicks).",
 ]
 
+FIRMWARE_CARE_BY_PROFILE: dict[str, list[str]] = {
+    "sc-lite": [
+        "tempcontrol=false does NOT stop the ~85C fanctrl walk — keep ON; re-pulse kicks.",
+        "4028 voltage often drifts vs plan (e.g. plan 9100 → reported ~9330).",
+        "Auth: raw Authorization <token> and Bearer both work (fw 2.2.0).",
+    ],
+    "sc5-pro-ii": [
+        "Same mv_pv plan dialect as SC Lite — fan kick via plan RPM fields is likely.",
+        "No temp_targets / no adjustable fan target (fixed basis).",
+        "4028 voltage typically matches plan (unlike SC Lite drift).",
+        "/mcb/status may answer without JWT; still send JWT for setting/dbg.",
+        "Model string uses Unicode Ⅱ (U+2161) — normalize keys carefully.",
+    ],
+    "sc5-pro": [
+        "Treat like SC5 Pro II until a plain SC5 Pro capture lands.",
+    ],
+}
+
+
+def _pace(deep: bool, seconds: float = 2.0) -> None:
+    if deep:
+        time.sleep(seconds)
+
+
+def _http_get_auth(
+    url: str, token: str, *, bearer: bool, timeout: float = 12.0
+) -> tuple[int | None, Any]:
+    auth = f"Bearer {token}" if bearer else token
+    req = urllib.request.Request(
+        url, headers={"Authorization": auth, "Accept": "*/*"}, method="GET"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            raw = r.read()
+            code = getattr(r, "status", 200)
+            try:
+                return code, json.loads(raw)
+            except Exception:
+                return code, raw.decode("utf-8", "replace")[:800]
+    except urllib.error.HTTPError as e:
+        try:
+            body = e.read().decode("utf-8", "replace")[:300]
+        except Exception:
+            body = str(e)
+        return e.code, body
+    except Exception as e:
+        return None, f"{type(e).__name__}: {e}"
+
+
+def _plan_voltage_mv(plan: str) -> float | None:
+    try:
+        _mhz, mv, _fa, _fb, _pv = parse_plan(plan)
+        return float(mv)
+    except Exception:
+        m = re.search(r"(\d+(?:\.\d+)?)\s*V", plan or "", re.I)
+        if not m:
+            return None
+        try:
+            v = float(m.group(1))
+        except Exception:
+            return None
+        # float-V HS Box (~0.4) vs millivolt SC Lite/SC5 (~9100)
+        return v * 1000.0 if v < 100 else v
+
+
+def _measured_voltages(boards_summary: dict[str, Any] | None, bfg_devs: dict | None) -> list[float]:
+    vals: list[float] = []
+    # from summarize_boards boards list if present
+    if isinstance(boards_summary, dict):
+        for b in boards_summary.get("boards") or []:
+            # boards summary may not include voltage — check raw bfg
+            pass
+    raw = (bfg_devs or {}).get("sample") if isinstance(bfg_devs, dict) else None
+    # Prefer full DEVS via boards parser fields — re-read from stored boards if we add voltage later
+    return vals
+
+
+def _icinfo_board_chip_counts(payload: Any) -> dict[str, Any]:
+    """Best-effort chip counts from /dbg/icinfo JSON."""
+    out: dict[str, Any] = {"boards": [], "total_chips": None}
+    if not isinstance(payload, dict):
+        out["raw_type"] = type(payload).__name__
+        return out
+    table = payload.get("tabledata") or payload.get("data") or payload.get("boards")
+    chips_total = 0
+    found = False
+    if isinstance(table, list):
+        for i, row in enumerate(table):
+            if not isinstance(row, dict):
+                continue
+            # common shapes: chipnum / chips / count
+            n = row.get("chipnum") or row.get("chips") or row.get("chip_count") or row.get("count")
+            try:
+                n_i = int(n) if n is not None else None
+            except Exception:
+                n_i = None
+            name = row.get("name") or row.get("board") or row.get("id") or i
+            out["boards"].append({"id": name, "chips": n_i})
+            if n_i is not None:
+                chips_total += n_i
+                found = True
+    if found:
+        out["total_chips"] = chips_total
+    out["keys"] = sorted(payload.keys())[:40]
+    return out
+
+
+def _fanctrllog_snippet(text: str, limit: int = 8) -> list[str]:
+    lines = [
+        ln.strip()
+        for ln in (text or "").splitlines()
+        if "Fans Change" in ln or "Fan stay" in ln or "target_temp" in ln
+    ]
+    return lines[-limit:]
+
 
 def _tcp_open(ip: str, port: int, timeout: float = 2.0) -> bool:
     try:
@@ -170,6 +285,11 @@ def classify_model(
         "sc5-pro-ii",
     )
     needs_capture = suggested in ("unknown",) or not prof.get("verified_string")
+    support = prof.get("support_level") or (
+        "fleet-monitor"
+        if suggested in ("sc-lite", "hs-box", "sc5-pro-ii", "sc-box")
+        else "probe-only"
+    )
 
     return {
         "model": model or None,
@@ -179,6 +299,7 @@ def classify_model(
         "suggested_profile": suggested,
         "known_family": known,
         "needs_community_capture": needs_capture,
+        "support_level": support,
         "capability": {
             "name": prof.get("name"),
             "plan_dialect": prof.get("plan_dialect"),
@@ -195,24 +316,40 @@ def classify_model(
             "source": prof.get("source"),
             "known": prof.get("known"),
             "verified_string": prof.get("verified_string"),
+            "support_level": support,
+            "fan_kick_tested": prof.get("fan_kick_tested"),
         },
         "boards_observed": {
             "nboards": nboards,
             "nfans": nfans,
             "chip_temp_hot": (boards_summary or {}).get("chip_temp_hot"),
             "mhs_av": (boards_summary or {}).get("mhs_av"),
+            "watts_dc": (boards_summary or {}).get("watts_dc"),
+            "clock": (boards_summary or {}).get("clock"),
         },
         "attribution": "models/boards adapted from crProductGuy/goldshell-box-tools-productguy (MIT)",
     }
 
 
-def probe_miner(ip: str, password: str = "", try_common_passwords: bool = True) -> dict[str, Any]:
-    """Full probe. Never echoes password in the result."""
+def probe_miner(
+    ip: str,
+    password: str = "",
+    try_common_passwords: bool = True,
+    *,
+    deep: bool = True,
+) -> dict[str, Any]:
+    """Probe a Goldshell box. Never echoes password in the result.
+
+    deep=True (default): paced extra reads — auth Bearer vs raw, plan vs measured
+    voltage, /dbg/icinfo chip counts, fanctrllog snippet, algosetting. One request
+    at a time with sleeps to avoid the firmware token-race crash.
+    """
     ip = ip.replace("http://", "").replace("https://", "").split("/")[0].strip()
     result: dict[str, Any] = {
         "ok": False,
         "ip": ip,
         "ts": time.time(),
+        "deep": bool(deep),
         "ports": {},
         "bfg": {},
         "http": {},
@@ -220,6 +357,7 @@ def probe_miner(ip: str, password: str = "", try_common_passwords: bool = True) 
         "dialect": {},
         "identity": {},
         "capabilities": {},
+        "deep_findings": {},
         "github_issue_markdown": "",
         "error": None,
     }
@@ -407,18 +545,106 @@ def probe_miner(ip: str, password: str = "", try_common_passwords: bool = True) 
 
     ident = result["identity"]
     cap = ident.get("capability") or {}
-    # Named plan levels (SC5 Pro II)
+    profile_id = ident.get("suggested_profile") or "unknown"
+    # Named plan levels (SC5 Pro II / table)
     plan_names = cap.get("plan_names")
-    if plan_names and isinstance(setting, dict):
+    if isinstance(setting, dict):
         result["http"]["plan_levels"] = [
             {
                 "level": p.get("level"),
-                "name": plan_names.get(p.get("level")) if isinstance(plan_names, dict) else None,
+                "name": (plan_names or {}).get(p.get("level")) if isinstance(plan_names, dict) else None,
                 "info": p.get("info"),
             }
             for p in (setting.get("powerplans") or [])
             if isinstance(p, dict)
         ]
+        result["http"]["has_temp_targets"] = "temp_targets" in setting
+
+    # --- Deep findings (paced) ---
+    deep_out: dict[str, Any] = {}
+    token = getattr(client, "_token", None) or ""
+
+    # Plan vs measured voltage (from 4028 board rows)
+    plan_raw = (result.get("dialect") or {}).get("raw") or ""
+    plan_mv = _plan_voltage_mv(plan_raw)
+    measured: list[float] = []
+    try:
+        # Re-parse boards for voltage fields
+        if result.get("ports", {}).get("4028"):
+            jdevs = _bfg(ip, "devs")
+            if jdevs:
+                for b in parse_devs4028(jdevs):
+                    if b.get("voltage_mv") is not None:
+                        measured.append(float(b["voltage_mv"]))
+    except Exception as e:
+        deep_out["voltage_parse_error"] = f"{type(e).__name__}: {e}"
+    if plan_mv is not None and measured:
+        avg_m = sum(measured) / len(measured)
+        deep_out["voltage"] = {
+            "plan_mv": plan_mv,
+            "measured_mv": measured,
+            "measured_avg_mv": avg_m,
+            "matches_plan": abs(avg_m - plan_mv) < 50,
+            "delta_mv": avg_m - plan_mv,
+        }
+    elif plan_mv is not None:
+        deep_out["voltage"] = {"plan_mv": plan_mv, "measured_mv": measured}
+
+    if deep and token:
+        _pace(deep)
+        # Auth forms
+        code_raw, _ = _http_get_auth(f"http://{ip}/mcb/status", token, bearer=False)
+        _pace(deep)
+        code_bearer, _ = _http_get_auth(f"http://{ip}/mcb/status", token, bearer=True)
+        deep_out["auth"] = {
+            "raw_authorization": code_raw,
+            "bearer_authorization": code_bearer,
+            "status_unauth": (result.get("http") or {}).get("status_unauth", {}).get("code"),
+        }
+
+        _pace(deep)
+        try:
+            algo = client.api("GET", "/mcb/algosetting")
+            deep_out["algosetting"] = _trim(algo, 1200)
+        except Exception as e:
+            deep_out["algosetting_error"] = f"{type(e).__name__}: {e}"
+
+        _pace(deep)
+        try:
+            ici = client.api("GET", "/dbg/icinfo")
+            deep_out["icinfo"] = _icinfo_board_chip_counts(ici)
+        except Exception as e:
+            deep_out["icinfo_error"] = f"{type(e).__name__}: {e}"
+
+        _pace(deep)
+        try:
+            flog = client.api("GET", "/dbg/fanctrllog")
+            text = flog.decode("utf-8", "replace") if isinstance(flog, (bytes, bytearray)) else str(flog)
+            deep_out["fanctrllog_snippet"] = _fanctrllog_snippet(text)
+            deep_out["fanctrllog_bytes"] = len(text)
+            # peek target_temp mentions
+            tgt = re.findall(r"target_temp\s*:\s*([0-9.]+)", text)
+            deep_out["fanctrllog_target_temps"] = sorted({t for t in tgt})[-5:]
+        except Exception as e:
+            deep_out["fanctrllog_error"] = f"{type(e).__name__}: {e}"
+
+        _pace(deep)
+        try:
+            code_cg, body_cg = _http_get_auth(
+                f"http://{ip}/mcb/cgminer?cgminercmd=devs", token, bearer=False
+            )
+            deep_out["cgminer_devs"] = {
+                "code": code_cg,
+                "ok": code_cg == 200,
+                "preview": _trim(body_cg, 400),
+            }
+        except Exception as e:
+            deep_out["cgminer_devs_error"] = f"{type(e).__name__}: {e}"
+
+    result["deep_findings"] = deep_out
+
+    care = list(FIRMWARE_CARE)
+    care.extend(FIRMWARE_CARE_BY_PROFILE.get(profile_id, []))
 
     # Capabilities heuristic
     result["capabilities"] = {
@@ -428,20 +654,32 @@ def probe_miner(ip: str, password: str = "", try_common_passwords: bool = True) 
         "jwt_login": True,
         "read_setting": "setting" in result["http"],
         "read_pools": "pools" in result["http"],
+        "has_temp_targets": bool(result["http"].get("has_temp_targets")),
         "fan_kick_likely": bool((result.get("dialect") or {}).get("parseable_sc_lite_int_v"))
         or bool((result.get("dialect") or {}).get("parseable_hs_box_float_v")),
         "fan_target_adjustable": bool(cap.get("fan_target")),
         "temp_target_basis": cap.get("temp_target_basis"),
         "board_source": cap.get("board_source"),
         "dbg_expected": cap.get("dbg_expected"),
+        "dbg_minerinfo_ok": bool(
+            isinstance(dbg_info, dict)
+            and (dbg_info.get("authed") or dbg_info.get("pga_blocks"))
+        ),
         "absent_signature": bool(cap.get("absent_signature")),
         "nboards_observed": (boards_summary or {}).get("nboards") if isinstance(boards_summary, dict) else None,
         "nfans_observed": (boards_summary or {}).get("nfans") if isinstance(boards_summary, dict) else None,
-        "suggested_webui_profile": ident.get("suggested_profile"),
+        "watts_dc_observed": (boards_summary or {}).get("watts_dc") if isinstance(boards_summary, dict) else None,
+        "voltage_matches_plan": (deep_out.get("voltage") or {}).get("matches_plan"),
+        "auth_raw_ok": (deep_out.get("auth") or {}).get("raw_authorization") == 200,
+        "auth_bearer_ok": (deep_out.get("auth") or {}).get("bearer_authorization") == 200,
+        "icinfo_total_chips": (deep_out.get("icinfo") or {}).get("total_chips"),
+        "suggested_webui_profile": profile_id,
+        "support_level": ident.get("support_level"),
         "used_common_password_hint": used_common,
-        "firmware_care": FIRMWARE_CARE,
+        "firmware_care": care,
         "soft_watchdog_ready": True,
         "power_cycle_plug": False,
+        "deep": bool(deep),
     }
 
     result["ok"] = True
@@ -503,8 +741,10 @@ def render_github_issue(probe: dict[str, Any]) -> str:
         f"- **Firmware:** `{fw}`",
         f"- **Hardware / MCB:** `{ident.get('hardware')}` / `{ident.get('mcbversion')}`",
         f"- **Suggested profile:** `{profile}`",
+        f"- **Support level:** `{ident.get('support_level') or caps.get('support_level')}`",
         f"- **Known family:** `{ident.get('known_family')}`",
         f"- **Needs community capture:** `{ident.get('needs_community_capture')}`",
+        f"- **Deep probe:** `{probe.get('deep')}`",
         f"- **Capability source:** {cap.get('source') or '(n/a)'}",
         "",
         "## Ports",
@@ -514,7 +754,8 @@ def render_github_issue(probe: dict[str, Any]) -> str:
         "",
         "## Boards (4028 / dbg)",
         f"- nboards: `{boards.get('nboards')}` · nfans: `{boards.get('nfans')}` · "
-        f"hot chip: `{boards.get('chip_temp_hot')}` · MHS av: `{boards.get('mhs_av')}`",
+        f"hot chip: `{boards.get('chip_temp_hot')}` · MHS av: `{boards.get('mhs_av')}` · "
+        f"watts_dc: `{boards.get('watts_dc')}`",
         "",
         "## Powerplan dialect",
         f"- raw: `{plan}`",
@@ -522,6 +763,7 @@ def render_github_issue(probe: dict[str, Any]) -> str:
         f"- SC Lite int-V parse: `{dialect.get('parseable_sc_lite_int_v')}`",
         f"- HS Box float-V parse: `{dialect.get('parseable_hs_box_float_v')}`",
         f"- plan names: `{cap.get('plan_names')}`",
+        f"- has_temp_targets: `{http.get('has_temp_targets')}`",
         f"- notes: {', '.join(dialect.get('notes') or []) or '(none)'}",
         "",
         "## Capabilities (heuristic)",
@@ -531,6 +773,10 @@ def render_github_issue(probe: dict[str, Any]) -> str:
             continue
         lines.append(f"- `{k}`: `{v}`")
     lines += ["", "### Firmware care", *[f"- {x}" for x in (caps.get("firmware_care") or FIRMWARE_CARE)]]
+
+    deep = probe.get("deep_findings") or {}
+    if deep:
+        lines += ["", "## Deep findings", "```json", json.dumps(deep, indent=2, default=str)[:3500], "```"]
 
     lines += ["", "## BFG summary", "```json", json.dumps(bfg.get("summary") or {}, indent=2), "```"]
     if boards:
@@ -548,11 +794,11 @@ def render_github_issue(probe: dict[str, Any]) -> str:
     lines += [
         "",
         "## Ask / PR ask",
-        "- [ ] Confirm model folder (`sc-lite` / `hs-box` / `sc-box` / `sc5-pro` / `sc5-pro-ii` / new)",
-        "- [ ] Confirm fan-kick safe with this plan dialect",
+        f"- [x] Model folder suggestion: `{profile}`",
+        "- [ ] Confirm fan-kick safe with this plan dialect (live kick once)",
         "- [ ] Soft-watchdog: enable dry_run first?",
         "- [ ] Any fw-specific quirks?",
         "",
-        f"_Probe ts: {probe.get('ts')}_",
+        f"_Probe ts: {probe.get('ts')} · deep={probe.get('deep')}_",
     ]
     return "\n".join(lines)

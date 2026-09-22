@@ -36,5 +36,7 @@ Same unit family still reports:
 - Plan levels named Hashrate / Low-power / Idle · `mv_pv` · no `temp_targets`
 - `fan_kick_likely` True · `fan_target_adjustable` False · `temp_target_basis` fixed
 
-**Support claim:** SC5 Pro II is supported for **probe / classify / monitor / plan dialect**.
-Fan-kick / auto-fan assumed same `mv_pv` path as SC Lite — optional live kick still nice, not required to call the product known.
+**Support claim:** SC5 Pro II is **`fleet-monitor`** in `models.py` — probe / classify /
+boards / plan dialect verified. Fan-kick / auto-fan assumed same `mv_pv` path as SC Lite
+(`fan_kick_tested: false` until someone runs a gentle kick). Use **deep probe**
+(`probe_miner(..., deep=True)`, default) for auth / voltage / icinfo / fanctrllog extras.
