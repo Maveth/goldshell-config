@@ -10,16 +10,32 @@ This folder is **standalone**:
 | Needs | Notes |
 |-------|--------|
 | Python 3.10+ | stdlib HTTP server |
-| `pycryptodome` | JWT login AES — install via `../python/requirements.txt` |
+| `pycryptodome` | JWT login AES — `pip install -r requirements.txt` |
 | `miner_client.py` / `fan_controller.py` | **shipped here** — does **not** import your lab paths or NAS code |
 
 **Not included in git:** `miners.json` (your IPs/passwords). Copy from `miners.example.json`.
+
+### Ubuntu / Debian note (PEP 668)
+
+Modern Ubuntu blocks system-wide `pip` (`externally-managed-environment`).
+Use a **venv** (or `apt install python3-pycryptodome`):
+
+```bash
+cd sc-lite/webui
+sudo apt install -y python3-pip python3-venv   # once
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+# probe one-liner (inside venv):
+python -c "from probe import probe_miner; print(probe_miner('MINER_IP','PASSWORD')['github_issue_markdown'])"
+```
 
 ## Run
 
 ```powershell
 cd sc-lite\webui
-pip install -r ..\python\requirements.txt
+pip install -r requirements.txt
 copy miners.example.json miners.json
 # edit miners.json — set real IP + password (never commit this file)
 
