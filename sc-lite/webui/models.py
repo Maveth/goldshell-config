@@ -111,8 +111,11 @@ MODELS: dict[str, dict[str, Any]] = {
         "fan_max_rpm": None,
         "boards": 4,
         "source": (
-            "ProductGuy gbox models.py + fixtures/sc5proii (friend capture 2026-09-15; "
-            "MCB_V3_3 fw 2.2.0 hw 30.50.SA; 4 PGA boards / 4 fans; mv_pv plan)"
+            "ProductGuy gbox models.py + fixtures/sc5proii (friend/btcrealm capture "
+            "2026-09-15; MCB_V3_3 fw 2.2.0 hw 30.50.SA; 4 PGA / 4 fans; mv_pv). "
+            "Live re-confirmed 2026-09-22 via 4028+mcb/status/setting (btcrealm): "
+            "Unicode model Goldshell-SC5ProⅡ, plan 700 MHz 11750 V … PV 11900, "
+            "voltage matches plan (unlike SC Lite), /mcb/status answered without JWT"
         ),
         "verified_string": True,
         "plan_dialect": "mv_pv",

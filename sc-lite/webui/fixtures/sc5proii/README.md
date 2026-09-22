@@ -15,3 +15,14 @@ https://github.com/crProductGuy/goldshell-box-tools-productguy
 
 Use these when extending the probe or filing "my box looks like SC5" issues.
 Pool credentials were never included in the upstream capture.
+
+## Live re-confirm (btcrealm, 2026-09-22)
+
+Same unit family still reports:
+
+- `model`: `Goldshell-SC5ProⅡ` (Unicode Ⅱ)
+- `firmware` 2.2.0 / `hardware` 30.50.SA / `MCB_V3_3`
+- `:4028` `devs`: **4** PGA, `fan0`–`fan3`, clock 700, voltage **11750** (= plan)
+- Plan: `700 MHz 11750 V 30 RPM 30 RPM PV 11900` (`manual=false`, `tempcontrol=true`)
+- `/mcb/status` answered even **without** an `Authorization` header on that day
+  (still send JWT for `/mcb/setting` and `/dbg/*`)
