@@ -331,18 +331,133 @@ def classify_model(
     }
 
 
+def _fan_rpms_from_bfg(ip: str) -> list[int]:
+    j = _bfg(ip, "devs")
+    if not j:
+        return []
+    try:
+        boards = parse_devs4028(j)
+    except Exception:
+        return []
+    if not boards:
+        return []
+    fans = boards[0].get("fans") or []
+    out: list[int] = []
+    for f in fans:
+        try:
+            out.append(int(float(f)))
+        except Exception:
+            pass
+    return out
+
+
+def _experimental_fan_kick(
+    client: MinerClient,
+    ip: str,
+    *,
+    kick_fan: int = 80,
+    wait_s: float = 10.0,
+    abort_c: float = 92.0,
+) -> dict[str, Any]:
+    """Opt-in: pulse plan fan fields, sample 4028 RPM, restore prior setting.
+
+    Does **not** flip tempcontrol. Restores the exact pre-kick /mcb/setting body.
+    """
+    out: dict[str, Any] = {
+        "attempted": True,
+        "ok": False,
+        "restored": False,
+        "rpm_rose": None,
+    }
+    try:
+        snap = client.api("GET", "/mcb/setting")
+        if not isinstance(snap, dict):
+            out["error"] = f"bad setting: {snap!r}"
+            return out
+        # temp guard from latest boards if available
+        j = _bfg(ip, "devs")
+        hot = None
+        if j:
+            try:
+                hot = summarize_boards(parse_devs4028(j)).get("chip_temp_hot")
+            except Exception:
+                hot = None
+        out["temp_before"] = hot
+        if hot is not None and float(hot) >= abort_c:
+            out["error"] = f"abort: chip_temp_hot {hot} >= {abort_c}"
+            out["skipped"] = True
+            return out
+
+        before_rpms = _fan_rpms_from_bfg(ip)
+        out["rpm_before"] = before_rpms
+        plan0 = str(snap.get("manualPowerplan") or "")
+        out["plan_before"] = plan0
+
+        kick = max(0, min(100, int(kick_fan)))
+        kick_res = client.set_fan_bias(kick)
+        out["kick"] = kick_res
+        time.sleep(wait_s)
+        after_rpms = _fan_rpms_from_bfg(ip)
+        out["rpm_after"] = after_rpms
+
+        rose = False
+        if before_rpms and after_rpms:
+            # any fan up by >= 200 RPM, or avg up
+            bavg = sum(before_rpms) / len(before_rpms)
+            aavg = sum(after_rpms[: len(before_rpms)]) / len(before_rpms)
+            rose = aavg >= bavg + 150 or any(
+                (after_rpms[i] if i < len(after_rpms) else 0) >= before_rpms[i] + 200
+                for i in range(len(before_rpms))
+            )
+        out["rpm_rose"] = rose
+
+        # restore exact snapshot (plan + manual + tempcontrol)
+        restore_body = dict(snap)
+        restore_body.pop("password", None)
+        client.api("PUT", "/mcb/setting", restore_body)
+        time.sleep(1.5)
+        back = client.api("GET", "/mcb/setting")
+        out["restored"] = (
+            isinstance(back, dict)
+            and str(back.get("manualPowerplan") or "") == plan0
+        )
+        out["plan_after_restore"] = (
+            back.get("manualPowerplan") if isinstance(back, dict) else None
+        )
+        out["ok"] = True
+    except Exception as e:
+        out["error"] = f"{type(e).__name__}: {e}"
+        # best-effort restore if we have snap in locals
+        try:
+            if "snap" in locals() and isinstance(snap, dict):
+                body = dict(snap)
+                body.pop("password", None)
+                client.api("PUT", "/mcb/setting", body)
+                out["restored"] = True
+                out["restore_after_error"] = True
+        except Exception as e2:
+            out["restore_error"] = f"{type(e2).__name__}: {e2}"
+    return out
+
+
 def probe_miner(
     ip: str,
     password: str = "",
     try_common_passwords: bool = True,
     *,
     deep: bool = True,
+    experimental_fan_kick: bool = False,
+    kick_fan: int = 80,
 ) -> dict[str, Any]:
     """Probe a Goldshell box. Never echoes password in the result.
 
     deep=True (default): paced extra reads — auth Bearer vs raw, plan vs measured
     voltage, /dbg/icinfo chip counts, fanctrllog snippet, algosetting. One request
     at a time with sleeps to avoid the firmware token-race crash.
+
+    experimental_fan_kick=False (default): when True, briefly pulses plan fan
+    fields (default 80), checks 4028 RPM rise, then restores prior setting.
+    Skips if hot chip >= 92 C. Opt-in only.
     """
     ip = ip.replace("http://", "").replace("https://", "").split("/")[0].strip()
     result: dict[str, Any] = {
@@ -350,6 +465,7 @@ def probe_miner(
         "ip": ip,
         "ts": time.time(),
         "deep": bool(deep),
+        "experimental_fan_kick": bool(experimental_fan_kick),
         "ports": {},
         "bfg": {},
         "http": {},
@@ -358,6 +474,7 @@ def probe_miner(
         "identity": {},
         "capabilities": {},
         "deep_findings": {},
+        "fan_kick": {},
         "github_issue_markdown": "",
         "error": None,
     }
@@ -643,8 +760,21 @@ def probe_miner(
 
     result["deep_findings"] = deep_out
 
+    # Optional experimental fan kick (writes setting, then restores)
+    fan_kick: dict[str, Any] = {"attempted": False}
+    if experimental_fan_kick:
+        _pace(True, 2.0)
+        fan_kick = _experimental_fan_kick(client, ip, kick_fan=kick_fan)
+    result["fan_kick"] = fan_kick
+
     care = list(FIRMWARE_CARE)
     care.extend(FIRMWARE_CARE_BY_PROFILE.get(profile_id, []))
+    if experimental_fan_kick:
+        care.append(
+            "experimental_fan_kick was ENABLED for this run — plan fan fields pulsed then restored."
+        )
+
+    kick_ok = bool(fan_kick.get("ok") and fan_kick.get("rpm_rose"))
 
     # Capabilities heuristic
     result["capabilities"] = {
@@ -657,6 +787,9 @@ def probe_miner(
         "has_temp_targets": bool(result["http"].get("has_temp_targets")),
         "fan_kick_likely": bool((result.get("dialect") or {}).get("parseable_sc_lite_int_v"))
         or bool((result.get("dialect") or {}).get("parseable_hs_box_float_v")),
+        "fan_kick_tested_this_run": bool(fan_kick.get("attempted")),
+        "fan_kick_rpm_rose": fan_kick.get("rpm_rose"),
+        "fan_kick_restored": fan_kick.get("restored"),
         "fan_target_adjustable": bool(cap.get("fan_target")),
         "temp_target_basis": cap.get("temp_target_basis"),
         "board_source": cap.get("board_source"),
@@ -680,6 +813,8 @@ def probe_miner(
         "soft_watchdog_ready": True,
         "power_cycle_plug": False,
         "deep": bool(deep),
+        "experimental_fan_kick": bool(experimental_fan_kick),
+        "fan_kick_ok": kick_ok,
     }
 
     result["ok"] = True
@@ -778,6 +913,22 @@ def render_github_issue(probe: dict[str, Any]) -> str:
     if deep:
         lines += ["", "## Deep findings", "```json", json.dumps(deep, indent=2, default=str)[:3500], "```"]
 
+    fan_kick = probe.get("fan_kick") or {}
+    if fan_kick.get("attempted"):
+        lines += [
+            "",
+            "## Experimental fan kick",
+            f"- rpm_before: `{fan_kick.get('rpm_before')}`",
+            f"- rpm_after: `{fan_kick.get('rpm_after')}`",
+            f"- rpm_rose: `{fan_kick.get('rpm_rose')}`",
+            f"- restored: `{fan_kick.get('restored')}`",
+            f"- temp_before: `{fan_kick.get('temp_before')}`",
+            f"- error: `{fan_kick.get('error')}`",
+            "```json",
+            json.dumps(fan_kick, indent=2, default=str)[:2000],
+            "```",
+        ]
+
     lines += ["", "## BFG summary", "```json", json.dumps(bfg.get("summary") or {}, indent=2), "```"]
     if boards:
         lines += ["", "## Boards summary", "```json", json.dumps(boards, indent=2)[:2500], "```"]
@@ -799,6 +950,7 @@ def render_github_issue(probe: dict[str, Any]) -> str:
         "- [ ] Soft-watchdog: enable dry_run first?",
         "- [ ] Any fw-specific quirks?",
         "",
-        f"_Probe ts: {probe.get('ts')} · deep={probe.get('deep')}_",
+        f"_Probe ts: {probe.get('ts')} · deep={probe.get('deep')} · "
+        f"experimental_fan_kick={probe.get('experimental_fan_kick')}_",
     ]
     return "\n".join(lines)

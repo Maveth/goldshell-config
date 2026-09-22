@@ -427,7 +427,17 @@ class Handler(SimpleHTTPRequestHandler):
                 pw = str(body.get("password") or "")
                 try_common = bool(body.get("try_common_passwords", True))
                 add = bool(body.get("add_to_registry", False))
-                result = probe_miner(ip, password=pw, try_common_passwords=try_common)
+                deep = bool(body.get("deep", True))
+                experimental_fan_kick = bool(body.get("experimental_fan_kick", False))
+                kick_fan = int(body.get("kick_fan") or 80)
+                result = probe_miner(
+                    ip,
+                    password=pw,
+                    try_common_passwords=try_common,
+                    deep=deep,
+                    experimental_fan_kick=experimental_fan_kick,
+                    kick_fan=kick_fan,
+                )
                 if add and result.get("ok") and pw:
                     # register using suggested id
                     ident = result.get("identity") or {}

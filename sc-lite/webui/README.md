@@ -33,7 +33,12 @@ python -c "from probe import probe_miner; print(probe_miner('MINER_IP','PASSWORD
 
 # faster shallow probe:
 python -c "from probe import probe_miner; print(probe_miner('MINER_IP','PASSWORD', deep=False)['github_issue_markdown'])"
+
+# EXPERIMENTAL fan kick (writes then restores plan fan fields; skips if hot >=92C):
+python -c "from probe import probe_miner; print(probe_miner('MINER_IP','PASSWORD', experimental_fan_kick=True)['github_issue_markdown'])"
 ```
+
+**Fan kick is opt-in.** Default probe never changes fans. Kick pulses plan RPM bias (~80), waits ~10s, checks 4028 RPM, restores prior `/mcb/setting`.
 
 **Support levels** (from `models.py` + probe):
 
