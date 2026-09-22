@@ -50,11 +50,41 @@
         <span id="detailPill" class="pill">—</span>
       </div>
       <div class="split" style="margin-top:0.75rem">
+        <!-- Left: Live + Pools -->
         <div>
           <div class="panel compact">
             <h2>Live</h2>
             <div class="kv" id="detailKv"></div>
           </div>
+          <div class="panel compact">
+            <h2>Pools</h2>
+            <div class="row gap">
+              <button type="button" class="primary" id="btnFailback">Failback</button>
+              <input id="preferredIdx" type="number" min="0" value="0" style="width:3.5rem" />
+              <button type="button" id="btnReloadPools">Reload</button>
+            </div>
+            <div style="overflow:auto; margin-top:0.5rem">
+              <table>
+                <thead><tr><th>#</th><th>Status</th><th>Work</th><th>Acc</th><th>URL</th><th></th></tr></thead>
+                <tbody id="poolsBody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="panel compact">
+            <h2>Add pool</h2>
+            <div class="row">
+              <input id="poolUrl" placeholder="stratum+tcp://host:port" style="flex:1" />
+              <input id="poolUser" placeholder="address.worker" style="flex:1" />
+              <input id="poolPass" placeholder="x" style="width:3rem" />
+              <button type="button" class="primary" id="btnAddPool">Add</button>
+            </div>
+          </div>
+          <div class="panel compact">
+            <button type="button" class="danger" id="btnRemoveMiner">Remove from registry</button>
+          </div>
+        </div>
+        <!-- Right: Boards + Fan + Clock -->
+        <div>
           <div class="panel compact">
             <h2>Boards</h2>
             <div id="detailBoards" class="muted">—</div>
@@ -96,34 +126,6 @@
               <button type="button" class="danger" id="btnDetailPlan" disabled>Set clock/V</button>
             </div>
             <p class="muted" id="detailPlanRaw">—</p>
-          </div>
-        </div>
-        <div>
-          <div class="panel compact">
-            <h2>Pools</h2>
-            <div class="row gap">
-              <button type="button" class="primary" id="btnFailback">Failback</button>
-              <input id="preferredIdx" type="number" min="0" value="0" style="width:3.5rem" />
-              <button type="button" id="btnReloadPools">Reload</button>
-            </div>
-            <div style="overflow:auto; margin-top:0.5rem">
-              <table>
-                <thead><tr><th>#</th><th>Status</th><th>Work</th><th>Acc</th><th>URL</th><th></th></tr></thead>
-                <tbody id="poolsBody"></tbody>
-              </table>
-            </div>
-          </div>
-          <div class="panel compact">
-            <h2>Add pool</h2>
-            <div class="row">
-              <input id="poolUrl" placeholder="stratum+tcp://host:port" style="flex:1" />
-              <input id="poolUser" placeholder="address.worker" style="flex:1" />
-              <input id="poolPass" placeholder="x" style="width:3rem" />
-              <button type="button" class="primary" id="btnAddPool">Add</button>
-            </div>
-          </div>
-          <div class="panel compact">
-            <button type="button" class="danger" id="btnRemoveMiner">Remove from registry</button>
           </div>
         </div>
       </div>
