@@ -26,3 +26,15 @@ Same unit family still reports:
 - Plan: `700 MHz 11750 V 30 RPM 30 RPM PV 11900` (`manual=false`, `tempcontrol=true`)
 - `/mcb/status` answered even **without** an `Authorization` header on that day
   (still send JWT for `/mcb/setting` and `/dbg/*`)
+
+### Our probe (same day)
+
+`python -c "from probe import probe_miner; …"` against this unit returned:
+
+- **Suggested profile:** `sc5-pro-ii` · known family · needs_community_capture **False**
+- 4 boards / 4 fans · hot chip ~90 °C · ~13.8 TH/s · ~3.0 kW DC from 4028 V×I
+- Plan levels named Hashrate / Low-power / Idle · `mv_pv` · no `temp_targets`
+- `fan_kick_likely` True · `fan_target_adjustable` False · `temp_target_basis` fixed
+
+**Support claim:** SC5 Pro II is supported for **probe / classify / monitor / plan dialect**.
+Fan-kick / auto-fan assumed same `mv_pv` path as SC Lite — optional live kick still nice, not required to call the product known.
