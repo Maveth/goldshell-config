@@ -1,4 +1,19 @@
-# Attribution
+# Attribution & license
+
+## This project (MaVeTh SC Lite tools)
+
+MaVeTh code in this repo is released under the **MIT License** — see `LICENSE`
+(Copyright (c) 2025-2026 MaVeTh), including:
+
+- **Pure / single-miner CLI** under `sc-lite/python/` (`sclite_common.py`,
+  `sclite_temp_manager.py`, snapshot / set-fan / restore / watch / pool failback,
+  and related helpers)
+- **Fleet web UI** (`fan_controller.py`, `miner_client.py`, `server.py`, probe,
+  docs, and related tooling)
+
+Third parties may use, modify, and ship commercial products derived from this
+code under MIT terms: keep the copyright / permission notice in substantial
+portions, and keep third-party notices below for adapted files.
 
 ## crProductGuy / goldshell-box-tools-productguy
 

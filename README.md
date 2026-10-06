@@ -132,9 +132,19 @@ sc-lite/
   POOL_FAILBACK.md    # sticky failover kick helper
 ```
 
+## License
+
+**MIT** — see [`LICENSE`](LICENSE) (Copyright (c) 2025-2026 MaVeTh).
+
+Adapted ProductGuy recoverability / multi-board bits remain MIT as well; see
+[`sc-lite/webui/ATTRIBUTION.md`](sc-lite/webui/ATTRIBUTION.md) and keep those
+notices if you redistribute those files. Commercial / product-line forks are
+fine under MIT so long as the notices travel with the code.
+
 ## Credit
 
 Original SC Lite tooling and reclock discovery: **BitcoinMechanic**.  
-Lab verification / fan + tempcontrol notes / auto-login helpers: **MaVeTh**.
+Lab verification / fan + tempcontrol notes / pure SC Lite CLI helpers (`sc-lite/python`) / fleet webui: **MaVeTh**.  
+ProductGuy (MIT): multi-board / soft-watchdog adaptations — see webui `ATTRIBUTION.md`.
 
 If you learn more on SC5 Pro or other Blake2b Goldshells, PRs welcome upstream and here.

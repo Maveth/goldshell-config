@@ -172,6 +172,8 @@ export TOKEN='…'          # from browser localStorage
 
 See `python/README.md`. These auto-login (AES cipher) so you don’t copy JWT from the browser each time.
 
+**License:** MIT — [`python/LICENSE`](python/LICENSE) (Copyright (c) 2025-2026 MaVeTh); same as the repo root and fleet webui.
+
 ## Safety checklist
 
 1. Prefer changing **only fan fields** when testing thermal behavior.

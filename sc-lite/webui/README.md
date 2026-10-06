@@ -103,3 +103,12 @@ SCLITE_WEBUI_MINERS=/data/miners.json
 - Static SPA (`static/`)
 
 Uses the same Goldshell APIs as `sclite_common.py` / `sclite_pool_failback.py`.
+
+## License
+
+**MIT** — see [`LICENSE`](LICENSE) (Copyright (c) 2025-2026 MaVeTh).
+
+Fleet UI, auto-fan (`fan_controller.py`), miner client, and related MaVeTh code may be
+used and sold in derivative products under MIT (keep the notice). Adapted ProductGuy
+files stay MIT too — keep [`ATTRIBUTION.md`](ATTRIBUTION.md) / their copyright notice
+when redistributing those pieces.

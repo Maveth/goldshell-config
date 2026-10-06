@@ -1,12 +1,20 @@
 # MaVeTh SC Lite Python helpers
 
-Auto-login JWT tools for firmware 2.2.0.
+Auto-login JWT tools for firmware 2.2.0 (single-miner CLI / temp manager — the
+older pure SC Lite helpers, separate from the fleet webui).
 
 Full walkthrough (ports, auth, fan kicks, safety):  
 [`../CONNECT_AND_FANS.md`](../CONNECT_AND_FANS.md)
 
 These scripts are **not** BIP-110-specific — they only talk to the miner over LAN HTTP.  
 Keep them in this repo (or a local working copy such as `O:\HSlite`); your BIP-110 / DATUM tree can stay separate.
+
+## License
+
+**MIT** — see [`LICENSE`](LICENSE) (Copyright (c) 2025-2026 MaVeTh).
+
+Same terms as the repo root and fleet webui: use, modify, and ship commercial
+derivatives; keep the copyright / permission notice with substantial portions.
 
 ## How to run and test
 
